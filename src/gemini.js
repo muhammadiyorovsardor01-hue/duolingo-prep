@@ -1,10 +1,13 @@
 import { roundDetScore } from './scoring.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 export const GEMINI_MODELS = [
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended — Fast + Multimodal Audio)' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Ultra Fast / High Quota)' }
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Recommended — Fast & High Free Quota)' },
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Most Capable Flash)' },
+  { id: 'gemini-flash-lite-latest', label: 'Gemini Flash-Lite Latest (Auto-Updated)' },
+  { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Auto-Updated)' }
 ];
 
 function extractJson(text) {
@@ -26,12 +29,8 @@ function extractJson(text) {
   }
 }
 
-async function callGemini({ apiKey, model = 'gemini-2.5-flash', parts, temperature = 0.35 }) {
-  const cleanKey = String(apiKey || '').trim();
-  if (!cleanKey) {
-    throw new Error('Missing Gemini API key');
-  }
-  const safeModel = encodeURIComponent(String(model || 'gemini-2.5-flash').trim());
+async function requestModel({ cleanKey, modelId, parts, temperature }) {
+  const safeModel = encodeURIComponent(String(modelId || DEFAULT_GEMINI_MODEL).trim());
   const url = `${GEMINI_BASE}/${safeModel}:generateContent`;
 
   const response = await fetch(url, {
@@ -55,7 +54,9 @@ async function callGemini({ apiKey, model = 'gemini-2.5-flash', parts, temperatu
       const errBody = await response.json();
       errMsg = errBody?.error?.message || errMsg;
     } catch {}
-    throw new Error(errMsg);
+    const err = new Error(errMsg);
+    err.status = response.status;
+    throw err;
   }
 
   const data = await response.json();
@@ -63,7 +64,28 @@ async function callGemini({ apiKey, model = 'gemini-2.5-flash', parts, temperatu
   return extractJson(text);
 }
 
-export async function testConnection(apiKey, model = 'gemini-2.5-flash') {
+async function callGemini({ apiKey, model = DEFAULT_GEMINI_MODEL, parts, temperature = 0.35 }) {
+  const cleanKey = String(apiKey || '').trim();
+  if (!cleanKey) {
+    throw new Error('Missing Gemini API key');
+  }
+  const chosenModel = String(model || DEFAULT_GEMINI_MODEL).trim();
+
+  try {
+    return await requestModel({ cleanKey, modelId: chosenModel, parts, temperature });
+  } catch (err) {
+    // Auto-retry once on transient 503 capacity spikes or deprecated 404 model IDs
+    if (err?.status === 503 || err?.status === 404) {
+      const fallbackModel = chosenModel === 'gemini-3.5-flash-lite'
+        ? 'gemini-flash-lite-latest'
+        : 'gemini-3.5-flash-lite';
+      return await requestModel({ cleanKey, modelId: fallbackModel, parts, temperature });
+    }
+    throw err;
+  }
+}
+
+export async function testConnection(apiKey, model = DEFAULT_GEMINI_MODEL) {
   try {
     const res = await callGemini({
       apiKey,
@@ -73,7 +95,7 @@ export async function testConnection(apiKey, model = 'gemini-2.5-flash') {
     });
     return {
       ok: Boolean(res?.ok),
-      message: `Connected to ${model}`
+      message: `Connected (${model})`
     };
   } catch (err) {
     return {
@@ -85,7 +107,7 @@ export async function testConnection(apiKey, model = 'gemini-2.5-flash') {
 
 export async function evaluateWriting({
   apiKey,
-  model = 'gemini-2.5-flash',
+  model = DEFAULT_GEMINI_MODEL,
   taskType,
   prompt,
   userResponse,
@@ -149,7 +171,7 @@ Return ONLY valid JSON with this exact schema:
 
 export async function evaluateSpeaking({
   apiKey,
-  model = 'gemini-2.5-flash',
+  model = DEFAULT_GEMINI_MODEL,
   taskType,
   prompt,
   audioBase64 = '',
@@ -310,7 +332,7 @@ function validateGeneratedQuestion(type, raw, difficulty) {
   }
 }
 
-export async function generateQuestion({ apiKey, model = 'gemini-2.5-flash', type, difficulty = 3, recentPrompts = [] }) {
+export async function generateQuestion({ apiKey, model = DEFAULT_GEMINI_MODEL, type, difficulty = 3, recentPrompts = [] }) {
   const cefr = CEFR_BY_DIFF[difficulty] || CEFR_BY_DIFF[3];
   const avoidNote = recentPrompts.length
     ? `Avoid repeating these recent topics/words: ${recentPrompts.slice(-6).join(' | ')}`

@@ -1,8 +1,18 @@
 const STORAGE_KEY = 'det_prep_v1';
 
+const LEGACY_GEMINI_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite']);
+
+function normalizeGeminiModel(modelId) {
+  const clean = String(modelId || '').trim();
+  if (!clean || LEGACY_GEMINI_MODELS.has(clean)) {
+    return 'gemini-3.5-flash-lite';
+  }
+  return clean;
+}
+
 export const DEFAULT_SETTINGS = {
   apiKey: '',
-  model: 'gemini-2.5-flash',
+  model: 'gemini-3.5-flash-lite',
   targetScore: 125,
   uiLang: 'uz',
   enableWebcam: false,
@@ -36,8 +46,10 @@ export function loadState() {
     const raw = store.getItem(STORAGE_KEY);
     if (!raw) return createDefaultState();
     const parsed = JSON.parse(raw);
+    const mergedSettings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
+    mergedSettings.model = normalizeGeminiModel(mergedSettings.model);
     return {
-      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
+      settings: mergedSettings,
       examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : [],
       practiceStats: parsed.practiceStats && typeof parsed.practiceStats === 'object' ? parsed.practiceStats : {},
       dailyActivity: parsed.dailyActivity && typeof parsed.dailyActivity === 'object' ? parsed.dailyActivity : {},
@@ -212,12 +224,14 @@ export function importBackupJSON(jsonText) {
     throw new Error('Invalid backup format');
   }
   const current = loadState();
+  const nextSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(parsed.settings || {}),
+    apiKey: current.settings.apiKey || (parsed.settings && parsed.settings.apiKey) || ''
+  };
+  nextSettings.model = normalizeGeminiModel(nextSettings.model);
   const next = {
-    settings: {
-      ...DEFAULT_SETTINGS,
-      ...(parsed.settings || {}),
-      apiKey: current.settings.apiKey || (parsed.settings && parsed.settings.apiKey) || ''
-    },
+    settings: nextSettings,
     examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : current.examHistory,
     practiceStats: parsed.practiceStats || current.practiceStats,
     dailyActivity: parsed.dailyActivity || current.dailyActivity,

@@ -759,7 +759,7 @@ function renderSettingsView() {
         <div class="form-group">
           <label class="form-label" for="set-apikey">${escapeHtml(t(lang, 'apiKeyLabel'))}</label>
           <div style="display:flex;gap:8px;">
-            <input id="set-apikey" type="password" class="det-input" value="${escapeHtml(s.apiKey)}" placeholder="AIza..." autocomplete="off" />
+            <input id="set-apikey" type="password" class="det-input" value="${escapeHtml(s.apiKey)}" placeholder="AQ... / AIza..." autocomplete="off" />
             <button type="button" id="set-toggle-key" class="btn btn-secondary btn-sm">👁</button>
           </div>
           <div class="form-help">${escapeHtml(t(lang, 'apiKeyHelp'))}</div>
@@ -775,7 +775,7 @@ function renderSettingsView() {
 
         <div id="set-custom-wrap" class="form-group ${isCustomModel ? '' : 'hidden'}">
           <label class="form-label" for="set-custom-model">${escapeHtml(t(lang, 'customModelLabel'))}</label>
-          <input id="set-custom-model" type="text" class="det-input" value="${isCustomModel ? escapeHtml(s.model) : ''}" placeholder="gemini-2.5-flash" />
+          <input id="set-custom-model" type="text" class="det-input" value="${isCustomModel ? escapeHtml(s.model) : ''}" placeholder="gemini-3.5-flash-lite" />
         </div>
 
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -859,7 +859,7 @@ function renderSettingsView() {
     customWrap.classList.toggle('hidden', modelSel.value !== '__custom__');
   });
 
-  const getChosenModel = () => (modelSel.value === '__custom__' ? (customInput.value.trim() || 'gemini-2.5-flash') : modelSel.value);
+  const getChosenModel = () => (modelSel.value === '__custom__' ? (customInput.value.trim() || 'gemini-3.5-flash-lite') : modelSel.value);
 
   mainEl.querySelector('#set-target').addEventListener('input', (e) => {
     mainEl.querySelector('#set-target-val').textContent = e.target.value;
