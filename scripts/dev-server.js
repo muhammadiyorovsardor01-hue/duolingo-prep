@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = Number(process.env.PORT) || 4173;
-const ROOT = __dirname;
+const ROOT = path.resolve(__dirname, '..');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -34,7 +34,6 @@ const server = http.createServer((req, res) => {
 
   fs.stat(targetPath, (err, stats) => {
     if (err || !stats.isFile()) {
-      // SPA fallback only for non-asset navigation requests
       const ext = path.extname(targetPath);
       if (ext && ext !== '.html') {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

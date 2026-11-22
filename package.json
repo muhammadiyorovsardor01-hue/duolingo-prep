@@ -4,6 +4,7 @@
   "description": "Personal Duolingo English Test (DET) Mock Exam & AI Practice Studio",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "dev": "node scripts/dev-server.js",
+    "build": "node scripts/build.js"
   }
 }
