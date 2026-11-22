@@ -170,9 +170,9 @@ button {
   gap: 7px;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--ink-muted);
+  border: 1px solid #B9E5FB;
+  background: var(--blue-soft);
+  color: #0D577A;
   font-size: 12px;
   font-weight: 700;
   transition: border-color 0.15s, background 0.15s;
@@ -188,7 +188,7 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--amber);
+  background: var(--blue);
 }
 
 .ai-pill.ready .ai-dot {

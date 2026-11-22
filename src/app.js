@@ -19,7 +19,7 @@ import { t } from './i18n.js';
 import {
   QUESTION_TYPES,
   getQuestionTypeMeta,
-  getBankForType,
+  getBankCapacity,
   pickQuestionFromBank,
   shuffleArray,
   buildReadSelectRound
@@ -151,7 +151,6 @@ function renderDashboard() {
   const streak = getStreak(state);
   const totalPractices = Object.values(state.practiceStats).reduce((s, p) => s + p.attempts, 0);
   const activeMistakes = state.mistakes.filter((m) => !m.mastered).length;
-  const hasKey = Boolean(String(state.settings.apiKey || '').trim());
 
   const overallDisplay = est.hasData ? est.overall : '--';
   const ringPct = est.hasData ? Math.round(((est.overall - 10) / 150) * 100) : 0;
@@ -190,16 +189,6 @@ function renderDashboard() {
         <button type="button" id="dash-full" class="btn btn-secondary">🎯 ${escapeHtml(t(lang, 'startFullMock'))}</button>
       </div>
     </div>
-
-    ${!hasKey ? `
-      <div class="banner banner-info">
-        <div>
-          <strong>${escapeHtml(t(lang, 'setupBannerTitle'))}</strong>
-          <div style="font-size:13px;margin-top:2px;">${escapeHtml(t(lang, 'setupBannerDesc'))}</div>
-        </div>
-        <button type="button" id="dash-open-settings" class="btn btn-primary btn-sm">${escapeHtml(t(lang, 'setupBannerBtn'))}</button>
-      </div>
-    ` : ''}
 
     <div class="hero-dashboard">
       <div class="card score-hero-card">
@@ -306,7 +295,6 @@ function renderDashboard() {
     </div>
   `;
 
-  mainEl.querySelector('#dash-open-settings')?.addEventListener('click', () => navigate('settings'));
   mainEl.querySelector('#dash-practice-btn')?.addEventListener('click', () => navigate('practice'));
   mainEl.querySelector('#dash-express')?.addEventListener('click', () => {
     launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'express', settings: loadState().settings, onExit: () => navigate('dashboard') });
@@ -442,7 +430,7 @@ function renderPracticeHub() {
               </div>
               <div class="practice-actions" style="margin-top:12px;">
                 <button type="button" class="btn btn-primary btn-sm" data-run-bank="${qt.id}">${escapeHtml(t(lang, 'btnPracticeBank'))}</button>
-                ${qt.aiGeneratable ? `<button type="button" class="btn btn-soft btn-sm" data-run-ai="${qt.id}" ${!hasKey ? 'title="Add Gemini API key in Settings"' : ''}>✨ ${escapeHtml(t(lang, 'btnPracticeAi'))}</button>` : ''}
+                ${qt.aiGeneratable && hasKey ? `<button type="button" class="btn btn-soft btn-sm" data-run-ai="${qt.id}">✨ ${escapeHtml(t(lang, 'btnPracticeAi'))}</button>` : ''}
               </div>
             </div>
           </div>
@@ -507,7 +495,7 @@ function startPracticeSession(typeId, useAi) {
   const sessionStartedAt = Date.now();
   const usedIds = new Set();
   const seenIds = getSeenIds(typeId);
-  const maxKeep = Math.max(1, getBankForType(typeId).length - 1);
+  const maxKeep = Math.max(1, getBankCapacity(typeId) - 1);
   const sessionResults = [];
   const isObjective = ['read_select', 'fill_blanks', 'read_complete', 'listen_type', 'interactive_reading'].includes(typeId);
 
@@ -1121,7 +1109,15 @@ function renderSettingsView() {
 
     <div class="grid-2">
       <div class="card">
-        <h3 class="card-title" style="margin-bottom:14px;">🤖 Google Gemini AI</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;">
+          <h3 class="card-title" style="margin:0;">🤖 ${lang === 'uz' ? 'Google Gemini AI (Ixtiyoriy Pro)' : 'Google Gemini AI (Optional Upgrade)'}</h3>
+          <span class="tag tag-reading">⚡ Smart Free Mode Active</span>
+        </div>
+        <div class="banner banner-info" style="margin-bottom:14px;padding:10px 14px;font-size:12.5px;">
+          <span>${lang === 'uz'
+            ? 'Ilova API kalitsiz ham to‘liq ishlaydi (LanguageTool grammatika, WPM nutq tahlili, 320+ so‘z va dinamik C-test). Gemini AI faqat real audio talaffuz va cheksiz AI savollar uchun qo‘shimcha imkoniyatdir.'
+            : 'The studio works 100% free without an API key (LanguageTool grammar, WPM speech analysis, 320+ word bank, and dynamic C-Tests). Add Gemini only if you want raw audio pronunciation grading.'}</span>
+        </div>
         <div class="form-group">
           <label class="form-label" for="set-apikey">${escapeHtml(t(lang, 'apiKeyLabel'))}</label>
           <div style="display:flex;gap:8px;">

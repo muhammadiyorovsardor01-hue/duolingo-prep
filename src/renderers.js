@@ -13,6 +13,7 @@ import {
   pctToDetScore
 } from './scoring.js';
 import { evaluateWriting, evaluateSpeaking } from './gemini.js';
+import { evaluateWritingSmart, evaluateSpeakingSmart } from './smart-eval.js';
 import { t } from './i18n.js';
 
 export function escapeHtml(str) {
@@ -817,11 +818,21 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
           });
           summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
         } catch {
-          aiSummaryEval = heuristicWritingScore({ text: summaryText, minWords: 20, targetWords: 55, lang });
+          aiSummaryEval = await evaluateWritingSmart({
+            taskType: 'interactive_listening',
+            prompt: item.summaryPrompt,
+            userResponse: summaryText,
+            lang
+          });
           summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
         }
       } else {
-        aiSummaryEval = heuristicWritingScore({ text: summaryText, minWords: 20, targetWords: 55, lang });
+        aiSummaryEval = await evaluateWritingSmart({
+          taskType: 'interactive_listening',
+          prompt: item.summaryPrompt,
+          userResponse: summaryText,
+          lang
+        });
         summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
       }
     }
@@ -852,11 +863,23 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
           feedbackLang: lang
         });
       } catch (err) {
-        aiFeedback = heuristicWritingScore({ text, minWords: type === 'write_photo' ? 25 : 65, targetWords: type === 'write_photo' ? 50 : 120, lang });
-        aiFeedback.apiError = err?.message || 'Gemini request failed';
+        aiFeedback = await evaluateWritingSmart({
+          taskType: type,
+          prompt,
+          userResponse: text,
+          imageDescription: item.imageDescription || '',
+          lang
+        });
+        aiFeedback.apiError = err?.message || 'Gemini fallback';
       }
     } else {
-      aiFeedback = heuristicWritingScore({ text, minWords: type === 'write_photo' ? 25 : 65, targetWords: type === 'write_photo' ? 50 : 120, lang });
+      aiFeedback = await evaluateWritingSmart({
+        taskType: type,
+        prompt,
+        userResponse: text,
+        imageDescription: item.imageDescription || '',
+        lang
+      });
     }
 
     const detScore = aiFeedback.estimatedScore;
@@ -897,11 +920,27 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
           feedbackLang: lang
         });
       } catch (err) {
-        aiFeedback = heuristicSpeakingScore({ transcript: rec.liveTranscript, durationSec: rec.durationSec || 0, targetSec: type === 'read_aloud' ? 15 : 60, lang });
-        aiFeedback.apiError = err?.message || 'Gemini request failed';
+        aiFeedback = await evaluateSpeakingSmart({
+          taskType: type,
+          prompt: promptText,
+          transcript: rec.liveTranscript || '',
+          targetSentence: item.sentence || '',
+          imageDescription: item.imageDescription || '',
+          durationSec: rec.durationSec || 0,
+          lang
+        });
+        aiFeedback.apiError = err?.message || 'Gemini fallback';
       }
     } else {
-      aiFeedback = heuristicSpeakingScore({ transcript: rec.liveTranscript, durationSec: rec.durationSec || 0, targetSec: type === 'read_aloud' ? 15 : 60, lang });
+      aiFeedback = await evaluateSpeakingSmart({
+        taskType: type,
+        prompt: promptText,
+        transcript: rec.liveTranscript || '',
+        targetSentence: item.sentence || '',
+        imageDescription: item.imageDescription || '',
+        durationSec: rec.durationSec || 0,
+        lang
+      });
     }
 
     const detScore = aiFeedback.estimatedScore;
@@ -999,10 +1038,31 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
   if (result.aiFeedback) {
     const fb = result.aiFeedback;
     const critEntries = Object.entries(fb.criteria || {});
+    const wordDiffHtml = Array.isArray(fb.wordDiff) && fb.wordDiff.length > 0
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">${fb.wordDiff.map((w) =>
+          `<span class="tag ${w.ok ? 'tag-speaking' : 'tag-danger'}">${escapeHtml(w.expected)}</span>`
+        ).join('')}</div>`
+      : '';
+    const smartChips = [];
+    if (fb.isSmartFreeEval) {
+      smartChips.push(`<span class="tag tag-ai">⚡ ${escapeHtml(fb.engineLabel || 'Smart Grammar Engine (Free)')}</span>`);
+    }
+    if (fb.wpm > 0) {
+      smartChips.push(`<span class="tag tag-speaking">${fb.wpm} WPM</span>`);
+    }
+    if (fb.stats?.advancedWords?.length) {
+      smartChips.push(`<span class="tag tag-reading">C1/AWL: ${fb.stats.advancedWords.length}</span>`);
+    }
+    if (fb.stats?.connectors?.length) {
+      smartChips.push(`<span class="tag tag-writing">Connectors: ${fb.stats.connectors.length}</span>`);
+    }
+
     bodyHtml += `
       <div style="margin-top:14px;">
-        ${fb.isOfflineEstimate ? `<div class="banner banner-warn" style="margin-bottom:12px;"><span>${escapeHtml(t(lang, 'offlineEvalNote'))}${fb.apiError ? ` (${escapeHtml(fb.apiError)})` : ''}</span></div>` : ''}
+        ${smartChips.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${smartChips.join('')}</div>` : ''}
+        ${fb.isOfflineEstimate && !fb.isSmartFreeEval ? `<div class="banner banner-warn" style="margin-bottom:12px;"><span>${escapeHtml(t(lang, 'offlineEvalNote'))}${fb.apiError ? ` (${escapeHtml(fb.apiError)})` : ''}</span></div>` : ''}
         <p style="margin:0 0 12px;font-weight:600;">${escapeHtml(fb.summary)}</p>
+        ${wordDiffHtml}
         ${fb.transcript ? `<div class="transcript-preview" style="margin-bottom:12px;"><strong>Transcript:</strong> ${escapeHtml(fb.transcript)}</div>` : ''}
         <div class="criteria-grid">
           ${critEntries.map(([k, v]) => `

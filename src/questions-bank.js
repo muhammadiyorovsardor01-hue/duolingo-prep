@@ -1,4 +1,10 @@
 import { SCENES } from './scenes.js';
+import {
+  generateDynamicFillBlanks,
+  generateDynamicReadComplete,
+  getDynamicFillCount,
+  getDynamicCTestCount
+} from './dynamic-gen.js';
 
 export const QUESTION_TYPES = [
   {
@@ -327,7 +333,182 @@ const READ_SELECT_BANK = [
   { id: 'rs157', word: 'superfluicate', isReal: false, difficulty: 5 },
   { id: 'rs158', word: 'intransigentize', isReal: false, difficulty: 5 },
   { id: 'rs159', word: 'anachronate', isReal: false, difficulty: 5 },
-  { id: 'rs160', word: 'circumspectious', isReal: false, difficulty: 5 }
+  { id: 'rs160', word: 'circumspectious', isReal: false, difficulty: 5 },
+
+  // Level 1 Real (16 more)
+  { id: 'rs161', word: 'adventure', isReal: true, difficulty: 1 },
+  { id: 'rs162', word: 'balance', isReal: true, difficulty: 1 },
+  { id: 'rs163', word: 'comfort', isReal: true, difficulty: 1 },
+  { id: 'rs164', word: 'deliver', isReal: true, difficulty: 1 },
+  { id: 'rs165', word: 'example', isReal: true, difficulty: 1 },
+  { id: 'rs166', word: 'festival', isReal: true, difficulty: 1 },
+  { id: 'rs167', word: 'genuine', isReal: true, difficulty: 1 },
+  { id: 'rs168', word: 'horizon', isReal: true, difficulty: 1 },
+  { id: 'rs169', word: 'journey', isReal: true, difficulty: 1 },
+  { id: 'rs170', word: 'kitchen', isReal: true, difficulty: 1 },
+  { id: 'rs171', word: 'lantern', isReal: true, difficulty: 1 },
+  { id: 'rs172', word: 'message', isReal: true, difficulty: 1 },
+  { id: 'rs173', word: 'natural', isReal: true, difficulty: 1 },
+  { id: 'rs174', word: 'patient', isReal: true, difficulty: 1 },
+  { id: 'rs175', word: 'quarter', isReal: true, difficulty: 1 },
+  { id: 'rs176', word: 'respect', isReal: true, difficulty: 1 },
+  // Level 1 Fake (16 more)
+  { id: 'rs177', word: 'adventury', isReal: false, difficulty: 1 },
+  { id: 'rs178', word: 'balancity', isReal: false, difficulty: 1 },
+  { id: 'rs179', word: 'comfortation', isReal: false, difficulty: 1 },
+  { id: 'rs180', word: 'deliverment', isReal: false, difficulty: 1 },
+  { id: 'rs181', word: 'examplish', isReal: false, difficulty: 1 },
+  { id: 'rs182', word: 'festivality', isReal: false, difficulty: 1 },
+  { id: 'rs183', word: 'genuinenessy', isReal: false, difficulty: 1 },
+  { id: 'rs184', word: 'horizonful', isReal: false, difficulty: 1 },
+  { id: 'rs185', word: 'journeyment', isReal: false, difficulty: 1 },
+  { id: 'rs186', word: 'kitchenly', isReal: false, difficulty: 1 },
+  { id: 'rs187', word: 'lanternize', isReal: false, difficulty: 1 },
+  { id: 'rs188', word: 'messagify', isReal: false, difficulty: 1 },
+  { id: 'rs189', word: 'naturalment', isReal: false, difficulty: 1 },
+  { id: 'rs190', word: 'patientive', isReal: false, difficulty: 1 },
+  { id: 'rs191', word: 'quarterish', isReal: false, difficulty: 1 },
+  { id: 'rs192', word: 'respectation', isReal: false, difficulty: 1 },
+
+  // Level 2 Real (16 more)
+  { id: 'rs193', word: 'achieve', isReal: true, difficulty: 2 },
+  { id: 'rs194', word: 'benefit', isReal: true, difficulty: 2 },
+  { id: 'rs195', word: 'capture', isReal: true, difficulty: 2 },
+  { id: 'rs196', word: 'decline', isReal: true, difficulty: 2 },
+  { id: 'rs197', word: 'emerge', isReal: true, difficulty: 2 },
+  { id: 'rs198', word: 'flexible', isReal: true, difficulty: 2 },
+  { id: 'rs199', word: 'gradual', isReal: true, difficulty: 2 },
+  { id: 'rs200', word: 'harvest', isReal: true, difficulty: 2 },
+  { id: 'rs201', word: 'inspire', isReal: true, difficulty: 2 },
+  { id: 'rs202', word: 'justice', isReal: true, difficulty: 2 },
+  { id: 'rs203', word: 'maintain', isReal: true, difficulty: 2 },
+  { id: 'rs204', word: 'observe', isReal: true, difficulty: 2 },
+  { id: 'rs205', word: 'predict', isReal: true, difficulty: 2 },
+  { id: 'rs206', word: 'recover', isReal: true, difficulty: 2 },
+  { id: 'rs207', word: 'squeeze', isReal: true, difficulty: 2 },
+  { id: 'rs208', word: 'whisper', isReal: true, difficulty: 2 },
+  // Level 2 Fake (16 more)
+  { id: 'rs209', word: 'achievent', isReal: false, difficulty: 2 },
+  { id: 'rs210', word: 'benefitical', isReal: false, difficulty: 2 },
+  { id: 'rs211', word: 'capturization', isReal: false, difficulty: 2 },
+  { id: 'rs212', word: 'declinement', isReal: false, difficulty: 2 },
+  { id: 'rs213', word: 'emergify', isReal: false, difficulty: 2 },
+  { id: 'rs214', word: 'flexiblenessly', isReal: false, difficulty: 2 },
+  { id: 'rs215', word: 'gradualment', isReal: false, difficulty: 2 },
+  { id: 'rs216', word: 'harvestive', isReal: false, difficulty: 2 },
+  { id: 'rs217', word: 'inspirate', isReal: false, difficulty: 2 },
+  { id: 'rs218', word: 'justicely', isReal: false, difficulty: 2 },
+  { id: 'rs219', word: 'maintaination', isReal: false, difficulty: 2 },
+  { id: 'rs220', word: 'observify', isReal: false, difficulty: 2 },
+  { id: 'rs221', word: 'predictory', isReal: false, difficulty: 2 },
+  { id: 'rs222', word: 'recoverance', isReal: false, difficulty: 2 },
+  { id: 'rs223', word: 'squeezation', isReal: false, difficulty: 2 },
+  { id: 'rs224', word: 'whisperment', isReal: false, difficulty: 2 },
+
+  // Level 3 Real (16 more)
+  { id: 'rs225', word: 'compile', isReal: true, difficulty: 3 },
+  { id: 'rs226', word: 'criteria', isReal: true, difficulty: 3 },
+  { id: 'rs227', word: 'diagnose', isReal: true, difficulty: 3 },
+  { id: 'rs228', word: 'elaborate', isReal: true, difficulty: 3 },
+  { id: 'rs229', word: 'forecast', isReal: true, difficulty: 3 },
+  { id: 'rs230', word: 'integrate', isReal: true, difficulty: 3 },
+  { id: 'rs231', word: 'justify', isReal: true, difficulty: 3 },
+  { id: 'rs232', word: 'neglect', isReal: true, difficulty: 3 },
+  { id: 'rs233', word: 'outcome', isReal: true, difficulty: 3 },
+  { id: 'rs234', word: 'priority', isReal: true, difficulty: 3 },
+  { id: 'rs235', word: 'regulate', isReal: true, difficulty: 3 },
+  { id: 'rs236', word: 'simulate', isReal: true, difficulty: 3 },
+  { id: 'rs237', word: 'transmit', isReal: true, difficulty: 3 },
+  { id: 'rs238', word: 'undergo', isReal: true, difficulty: 3 },
+  { id: 'rs239', word: 'venture', isReal: true, difficulty: 3 },
+  { id: 'rs240', word: 'withdraw', isReal: true, difficulty: 3 },
+  // Level 3 Fake (16 more)
+  { id: 'rs241', word: 'compilate', isReal: false, difficulty: 3 },
+  { id: 'rs242', word: 'criterialize', isReal: false, difficulty: 3 },
+  { id: 'rs243', word: 'diagnosify', isReal: false, difficulty: 3 },
+  { id: 'rs244', word: 'elaboratious', isReal: false, difficulty: 3 },
+  { id: 'rs245', word: 'forecastive', isReal: false, difficulty: 3 },
+  { id: 'rs246', word: 'integratify', isReal: false, difficulty: 3 },
+  { id: 'rs247', word: 'justificatious', isReal: false, difficulty: 3 },
+  { id: 'rs248', word: 'neglectfuly', isReal: false, difficulty: 3 },
+  { id: 'rs249', word: 'outcomish', isReal: false, difficulty: 3 },
+  { id: 'rs250', word: 'prioritify', isReal: false, difficulty: 3 },
+  { id: 'rs251', word: 'regulational', isReal: false, difficulty: 3 },
+  { id: 'rs252', word: 'simulatious', isReal: false, difficulty: 3 },
+  { id: 'rs253', word: 'transmittive', isReal: false, difficulty: 3 },
+  { id: 'rs254', word: 'undergoment', isReal: false, difficulty: 3 },
+  { id: 'rs255', word: 'venturize', isReal: false, difficulty: 3 },
+  { id: 'rs256', word: 'withdrawment', isReal: false, difficulty: 3 },
+
+  // Level 4 Real (16 more)
+  { id: 'rs257', word: 'accomplish', isReal: true, difficulty: 4 },
+  { id: 'rs258', word: 'bolster', isReal: true, difficulty: 4 },
+  { id: 'rs259', word: 'constrain', isReal: true, difficulty: 4 },
+  { id: 'rs260', word: 'deduce', isReal: true, difficulty: 4 },
+  { id: 'rs261', word: 'elevate', isReal: true, difficulty: 4 },
+  { id: 'rs262', word: 'facilitate', isReal: true, difficulty: 4 },
+  { id: 'rs263', word: 'harmonize', isReal: true, difficulty: 4 },
+  { id: 'rs264', word: 'immerse', isReal: true, difficulty: 4 },
+  { id: 'rs265', word: 'jeopardize', isReal: true, difficulty: 4 },
+  { id: 'rs266', word: 'manifest', isReal: true, difficulty: 4 },
+  { id: 'rs267', word: 'nurture', isReal: true, difficulty: 4 },
+  { id: 'rs268', word: 'perceive', isReal: true, difficulty: 4 },
+  { id: 'rs269', word: 'reinforce', isReal: true, difficulty: 4 },
+  { id: 'rs270', word: 'speculate', isReal: true, difficulty: 4 },
+  { id: 'rs271', word: 'traverse', isReal: true, difficulty: 4 },
+  { id: 'rs272', word: 'validate', isReal: true, difficulty: 4 },
+  // Level 4 Fake (16 more)
+  { id: 'rs273', word: 'accomplishify', isReal: false, difficulty: 4 },
+  { id: 'rs274', word: 'bolsterize', isReal: false, difficulty: 4 },
+  { id: 'rs275', word: 'constrainal', isReal: false, difficulty: 4 },
+  { id: 'rs276', word: 'deducify', isReal: false, difficulty: 4 },
+  { id: 'rs277', word: 'elevatious', isReal: false, difficulty: 4 },
+  { id: 'rs278', word: 'facilitory', isReal: false, difficulty: 4 },
+  { id: 'rs279', word: 'harmonizant', isReal: false, difficulty: 4 },
+  { id: 'rs280', word: 'immersiveful', isReal: false, difficulty: 4 },
+  { id: 'rs281', word: 'jeopardify', isReal: false, difficulty: 4 },
+  { id: 'rs282', word: 'manifestory', isReal: false, difficulty: 4 },
+  { id: 'rs283', word: 'nurturation', isReal: false, difficulty: 4 },
+  { id: 'rs284', word: 'perceivious', isReal: false, difficulty: 4 },
+  { id: 'rs285', word: 'reinforcive', isReal: false, difficulty: 4 },
+  { id: 'rs286', word: 'speculational', isReal: false, difficulty: 4 },
+  { id: 'rs287', word: 'traversify', isReal: false, difficulty: 4 },
+  { id: 'rs288', word: 'validatize', isReal: false, difficulty: 4 },
+
+  // Level 5 Real (16 more)
+  { id: 'rs289', word: 'acumen', isReal: true, difficulty: 5 },
+  { id: 'rs290', word: 'belligerent', isReal: true, difficulty: 5 },
+  { id: 'rs291', word: 'clandestine', isReal: true, difficulty: 5 },
+  { id: 'rs292', word: 'deleterious', isReal: true, difficulty: 5 },
+  { id: 'rs293', word: 'eloquent', isReal: true, difficulty: 5 },
+  { id: 'rs294', word: 'fastidious', isReal: true, difficulty: 5 },
+  { id: 'rs295', word: 'gregarious', isReal: true, difficulty: 5 },
+  { id: 'rs296', word: 'halcyon', isReal: true, difficulty: 5 },
+  { id: 'rs297', word: 'impeccable', isReal: true, difficulty: 5 },
+  { id: 'rs298', word: 'laconic', isReal: true, difficulty: 5 },
+  { id: 'rs299', word: 'munificent', isReal: true, difficulty: 5 },
+  { id: 'rs300', word: 'nefarious', isReal: true, difficulty: 5 },
+  { id: 'rs301', word: 'ostentatious', isReal: true, difficulty: 5 },
+  { id: 'rs302', word: 'pernicious', isReal: true, difficulty: 5 },
+  { id: 'rs303', word: 'quixotic', isReal: true, difficulty: 5 },
+  { id: 'rs304', word: 'sagacious', isReal: true, difficulty: 5 },
+  // Level 5 Fake (16 more)
+  { id: 'rs305', word: 'acumenize', isReal: false, difficulty: 5 },
+  { id: 'rs306', word: 'belligerencyful', isReal: false, difficulty: 5 },
+  { id: 'rs307', word: 'clandestinize', isReal: false, difficulty: 5 },
+  { id: 'rs308', word: 'deleteriousity', isReal: false, difficulty: 5 },
+  { id: 'rs309', word: 'eloquate', isReal: false, difficulty: 5 },
+  { id: 'rs310', word: 'fastidial', isReal: false, difficulty: 5 },
+  { id: 'rs311', word: 'gregariate', isReal: false, difficulty: 5 },
+  { id: 'rs312', word: 'halcyonize', isReal: false, difficulty: 5 },
+  { id: 'rs313', word: 'impeccablist', isReal: false, difficulty: 5 },
+  { id: 'rs314', word: 'laconify', isReal: false, difficulty: 5 },
+  { id: 'rs315', word: 'munificate', isReal: false, difficulty: 5 },
+  { id: 'rs316', word: 'nefariate', isReal: false, difficulty: 5 },
+  { id: 'rs317', word: 'ostentatify', isReal: false, difficulty: 5 },
+  { id: 'rs318', word: 'perniciousity', isReal: false, difficulty: 5 },
+  { id: 'rs319', word: 'quixotize', isReal: false, difficulty: 5 },
+  { id: 'rs320', word: 'sagacify', isReal: false, difficulty: 5 }
 ];
 
 const FILL_BLANKS_BANK = [
@@ -441,29 +622,85 @@ const READ_COMPLETE_BANK = [
 const LISTEN_TYPE_BANK = [
   { id: 'lt1', difficulty: 1, sentence: 'The library stays open until midnight during final exams.' },
   { id: 'lt2', difficulty: 1, sentence: 'Please remember to bring your student identification card tomorrow.' },
-  { id: 'lt3', difficulty: 2, sentence: 'Several trains were delayed this morning because of heavy fog.' },
-  { id: 'lt4', difficulty: 2, sentence: 'Professor Miller asked everyone to submit their essays before Friday.' },
-  { id: 'lt5', difficulty: 2, sentence: 'Our neighborhood café now offers reusable cups for regular customers.' },
-  { id: 'lt6', difficulty: 3, sentence: 'Although the experiment took months to prepare, the results were remarkably clear.' },
-  { id: 'lt7', difficulty: 3, sentence: 'Investing in public transportation reduces traffic congestion and lowers air pollution.' },
-  { id: 'lt8', difficulty: 3, sentence: 'Volunteers planted over three hundred native trees along the riverbank.' },
-  { id: 'lt9', difficulty: 3, sentence: 'Students who participate in study groups often retain new vocabulary longer.' },
-  { id: 'lt10', difficulty: 4, sentence: 'Economic analysts cautioned that energy prices could fluctuate throughout the winter.' },
-  { id: 'lt11', difficulty: 4, sentence: 'The museum exhibition explores how ancient astronomers mapped seasonal stars.' },
-  { id: 'lt12', difficulty: 4, sentence: 'Effective communication requires listening carefully before offering constructive feedback.' },
-  { id: 'lt13', difficulty: 5, sentence: 'Despite initial skepticism, the interdisciplinary research team corroborated the earlier findings.' },
-  { id: 'lt14', difficulty: 5, sentence: 'Municipal authorities implemented stringent conservation measures to mitigate seasonal droughts.' }
+  { id: 'lt3', difficulty: 1, sentence: 'Our morning bus usually arrives at the corner at seven thirty.' },
+  { id: 'lt4', difficulty: 1, sentence: 'Did you remember to pack your umbrella before leaving the house?' },
+  { id: 'lt5', difficulty: 1, sentence: 'The cafeteria serves hot soup and fresh fruit every afternoon.' },
+  { id: 'lt6', difficulty: 1, sentence: 'She writes down new vocabulary words in a small blue notebook.' },
+  { id: 'lt7', difficulty: 1, sentence: 'My cousin plans to visit the science museum this weekend.' },
+  { id: 'lt8', difficulty: 1, sentence: 'We met outside the main entrance right after the concert ended.' },
+  { id: 'lt9', difficulty: 2, sentence: 'Several trains were delayed this morning because of heavy fog.' },
+  { id: 'lt10', difficulty: 2, sentence: 'Professor Miller asked everyone to submit their essays before Friday.' },
+  { id: 'lt11', difficulty: 2, sentence: 'Our neighborhood café now offers reusable cups for regular customers.' },
+  { id: 'lt12', difficulty: 2, sentence: 'Working with a study partner makes difficult homework seem much lighter.' },
+  { id: 'lt13', difficulty: 2, sentence: 'The city opened two new bicycle paths along the quiet riverfront.' },
+  { id: 'lt14', difficulty: 2, sentence: 'Before signing the apartment lease, read every page very carefully.' },
+  { id: 'lt15', difficulty: 2, sentence: 'Solar panels on the roof generate enough power for daily lighting.' },
+  { id: 'lt16', difficulty: 2, sentence: 'A short walk outdoors can refresh your mind between long lectures.' },
+  { id: 'lt17', difficulty: 2, sentence: 'Local farmers sell fresh apples and honey at the Saturday market.' },
+  { id: 'lt18', difficulty: 2, sentence: 'Heavy rain forced the tennis tournament to move indoors until noon.' },
+  { id: 'lt19', difficulty: 3, sentence: 'Although the experiment took months to prepare, the results were remarkably clear.' },
+  { id: 'lt20', difficulty: 3, sentence: 'Investing in public transportation reduces traffic congestion and lowers air pollution.' },
+  { id: 'lt21', difficulty: 3, sentence: 'Volunteers planted over three hundred native trees along the riverbank.' },
+  { id: 'lt22', difficulty: 3, sentence: 'Students who participate in study groups often retain new vocabulary longer.' },
+  { id: 'lt23', difficulty: 3, sentence: 'Consistent sleep habits help the brain consolidate memories gathered during class.' },
+  { id: 'lt24', difficulty: 3, sentence: 'Digital archives allow researchers worldwide to inspect rare historical letters.' },
+  { id: 'lt25', difficulty: 3, sentence: 'When planning a long trip, comparing train routes can save both time and money.' },
+  { id: 'lt26', difficulty: 3, sentence: 'Public libraries bridge educational gaps by providing free workshops and quiet desks.' },
+  { id: 'lt27', difficulty: 3, sentence: 'Coral reefs shelter thousands of marine species and protect coastal villages from storms.' },
+  { id: 'lt28', difficulty: 3, sentence: 'Clear feedback from mentors encourages young writers to revise their drafts thoughtfully.' },
+  { id: 'lt29', difficulty: 3, sentence: 'Replacing bare concrete with shaded trees lowers summer temperatures across schoolyards.' },
+  { id: 'lt30', difficulty: 3, sentence: 'Despite tight budgets, the community theater staged four original plays this season.' },
+  { id: 'lt31', difficulty: 4, sentence: 'Economic analysts cautioned that energy prices could fluctuate throughout the winter.' },
+  { id: 'lt32', difficulty: 4, sentence: 'The museum exhibition explores how ancient astronomers mapped seasonal stars.' },
+  { id: 'lt33', difficulty: 4, sentence: 'Effective communication requires listening carefully before offering constructive feedback.' },
+  { id: 'lt34', difficulty: 4, sentence: 'Restoring coastal wetlands helps mitigate the destructive effects of seasonal flooding.' },
+  { id: 'lt35', difficulty: 4, sentence: 'Rapid urbanization has accelerated demand for dependable transit and affordable housing.' },
+  { id: 'lt36', difficulty: 4, sentence: 'Marine biologists warned that warming ocean currents could disrupt whale migration routes.' },
+  { id: 'lt37', difficulty: 4, sentence: 'Acoustic engineers combine computer simulations with curved wooden panels for concert clarity.' },
+  { id: 'lt38', difficulty: 4, sentence: 'Independent bookshops continue to thrive by hosting author talks and local reading clubs.' },
+  { id: 'lt39', difficulty: 4, sentence: 'Careful longitudinal studies are necessary to substantiate claims about dietary habits.' },
+  { id: 'lt40', difficulty: 4, sentence: 'Preserving native wildflowers near farms strengthens wild pollinator populations each spring.' },
+  { id: 'lt41', difficulty: 5, sentence: 'Despite initial skepticism, the interdisciplinary research team corroborated the earlier findings.' },
+  { id: 'lt42', difficulty: 5, sentence: 'Municipal authorities implemented stringent conservation measures to mitigate seasonal droughts.' },
+  { id: 'lt43', difficulty: 5, sentence: 'Behavioral psychologists demonstrate how overwhelming choices can inadvertently provoke buyer regret.' },
+  { id: 'lt44', difficulty: 5, sentence: 'Microscopic synthetic fibers steadily accumulate in freshwater streams despite treatment filters.' },
+  { id: 'lt45', difficulty: 5, sentence: 'Rather than issuing arbitrary decrees, pragmatic leaders cultivate consensus through dialogue.' },
+  { id: 'lt46', difficulty: 5, sentence: 'Overreliance on narrow quantitative metrics can subtly distort university teaching evaluations.' },
+  { id: 'lt47', difficulty: 5, sentence: 'Ecological rewilding allows regenerated forests and deep root systems to stabilize fragile soils.' },
+  { id: 'lt48', difficulty: 5, sentence: 'Excessive technical jargon often obfuscates practical policy advice meant for everyday citizens.' }
 ];
 
 const READ_ALOUD_BANK = [
   { id: 'ra1', difficulty: 1, sentence: 'My brother enjoys riding his bicycle through the park every Sunday morning.' },
-  { id: 'ra2', difficulty: 2, sentence: 'Learning a second language opens doors to new cultures and international friendships.' },
-  { id: 'ra3', difficulty: 2, sentence: 'The university bookstore will offer discounted textbooks throughout the first week of classes.' },
-  { id: 'ra4', difficulty: 3, sentence: 'Renewable energy technologies are rapidly transforming how coastal cities generate electricity.' },
-  { id: 'ra5', difficulty: 3, sentence: 'Before drawing firm conclusions, scientists carefully examine whether their data can be replicated.' },
-  { id: 'ra6', difficulty: 4, sentence: 'Although digital archives make historical documents accessible worldwide, preserving original manuscripts remains vital.' },
-  { id: 'ra7', difficulty: 4, sentence: 'Clear urban signage helps first-time visitors navigate crowded subway stations with confidence.' },
-  { id: 'ra8', difficulty: 5, sentence: 'Longitudinal studies indicate that early childhood exposure to music enhances auditory processing.' }
+  { id: 'ra2', difficulty: 1, sentence: 'Remember to bring a warm jacket because the evening breeze gets quite chilly.' },
+  { id: 'ra3', difficulty: 1, sentence: 'Our local bakery opens at six and fills the street with the scent of fresh bread.' },
+  { id: 'ra4', difficulty: 1, sentence: 'Reading twenty pages before bed helps me relax after a busy day at work.' },
+  { id: 'ra5', difficulty: 1, sentence: 'The new subway line makes traveling from the airport to downtown much faster.' },
+  { id: 'ra6', difficulty: 2, sentence: 'Learning a second language opens doors to new cultures and international friendships.' },
+  { id: 'ra7', difficulty: 2, sentence: 'The university bookstore will offer discounted textbooks throughout the first week of classes.' },
+  { id: 'ra8', difficulty: 2, sentence: 'Community gardens give city neighbors a welcoming place to grow healthy vegetables together.' },
+  { id: 'ra9', difficulty: 2, sentence: 'Turning off unused lights is one simple habit that lowers monthly electricity bills.' },
+  { id: 'ra10', difficulty: 2, sentence: 'Many students prefer studying near sunny windows rather than inside windowless basement rooms.' },
+  { id: 'ra11', difficulty: 2, sentence: 'A well-organized schedule leaves enough time for both academic projects and proper rest.' },
+  { id: 'ra12', difficulty: 3, sentence: 'Renewable energy technologies are rapidly transforming how coastal cities generate electricity.' },
+  { id: 'ra13', difficulty: 3, sentence: 'Before drawing firm conclusions, scientists carefully examine whether their data can be replicated.' },
+  { id: 'ra14', difficulty: 3, sentence: 'Public museums play an essential role in keeping regional history accessible to everyone.' },
+  { id: 'ra15', difficulty: 3, sentence: 'Balanced journalism presents verified facts clearly while distinguishing news reporting from personal opinion.' },
+  { id: 'ra16', difficulty: 3, sentence: 'Small improvements practiced consistently every day often produce greater results than sudden intense effort.' },
+  { id: 'ra17', difficulty: 3, sentence: 'Expanding reliable passenger rail networks offers travelers an efficient alternative to crowded highways.' },
+  { id: 'ra18', difficulty: 3, sentence: 'Teaching children how to manage a small budget builds practical financial confidence early.' },
+  { id: 'ra19', difficulty: 4, sentence: 'Although digital archives make historical documents accessible worldwide, preserving original manuscripts remains vital.' },
+  { id: 'ra20', difficulty: 4, sentence: 'Clear urban signage helps first-time visitors navigate crowded subway stations with confidence.' },
+  { id: 'ra21', difficulty: 4, sentence: 'Urban planners increasingly combine reflective pavements with shade trees to counteract summer heat.' },
+  { id: 'ra22', difficulty: 4, sentence: 'Collaborative research across continents accelerates discoveries in clean water filtration and medicine.' },
+  { id: 'ra23', difficulty: 4, sentence: 'Even brief exposure to green spaces during lunch breaks measurably improves concentration afterward.' },
+  { id: 'ra24', difficulty: 4, sentence: 'Maintaining transparent communication during public emergencies strengthens trust between citizens and institutions.' },
+  { id: 'ra25', difficulty: 5, sentence: 'Longitudinal studies indicate that early childhood exposure to music enhances auditory processing.' },
+  { id: 'ra26', difficulty: 5, sentence: 'Ocean currents act like a planetary conveyor belt distributing solar warmth toward polar latitudes.' },
+  { id: 'ra27', difficulty: 5, sentence: 'Behavioral researchers observe that overwhelming product assortments can paradoxically reduce customer satisfaction.' },
+  { id: 'ra28', difficulty: 5, sentence: 'Biodegradable textiles and advanced filtration membranes are crucial for curbing freshwater microplastic contamination.' },
+  { id: 'ra29', difficulty: 5, sentence: 'Architectural preservationists balance structural modernization with faithful respect for historic craftsmanship.' },
+  { id: 'ra30', difficulty: 5, sentence: 'Interdisciplinary dialogue encourages specialists to question hidden assumptions within their own methodology.' }
 ];
 
 const INTERACTIVE_READING_BANK = [
@@ -605,6 +842,282 @@ const INTERACTIVE_READING_BANK = [
       ],
       correct: 'How Songbirds Learn Their Melodies'
     }
+  },
+  {
+    id: 'ir3',
+    difficulty: 3,
+    title: 'Deep-Sea Hydrothermal Vents',
+    stage1: {
+      paragraphParts: [
+        'For centuries, biologists assumed that all life on Earth depended directly on sunlight for energy. That assumption shattered in 1977 when oceanographers discovered thriving ecosystems around hydrothermal ',
+        ' deep on the Pacific Ocean floor. Superheated water rich in dissolved minerals rises through cracks in the volcanic crust where sunlight never ',
+        '. Specialized bacteria oxidize hydrogen sulfide chemicals to manufacture organic nutrients through a process called chemosynthesis instead of ',
+        '. Giant tube worms and blind shrimp cluster tightly around these mineral chimneys to feed on the ',
+        ' microbes. Consequently, deep-sea vents broadened scientific searches for life on icy moons ',
+        ' our solar system.'
+      ],
+      blanks: [
+        { options: ['vents', 'glaciers', 'valleys', 'deserts'], correct: 'vents' },
+        { options: ['penetrates', 'evaporates', 'freezes', 'calculates'], correct: 'penetrates' },
+        { options: ['photosynthesis', 'gravity', 'erosion', 'migration'], correct: 'photosynthesis' },
+        { options: ['abundant', 'fragile', 'wooden', 'silent'], correct: 'abundant' },
+        { options: ['beyond', 'underneath', 'inside', 'before'], correct: 'beyond' }
+      ]
+    },
+    stage2: {
+      before: 'For centuries, biologists assumed that all life on Earth depended directly on sunlight for energy. That assumption shattered in 1977 when oceanographers discovered thriving ecosystems around hydrothermal vents deep on the Pacific Ocean floor. Superheated water rich in dissolved minerals rises through cracks in the volcanic crust where sunlight never penetrates. Specialized bacteria oxidize hydrogen sulfide chemicals to manufacture organic nutrients through a process called chemosynthesis instead of photosynthesis. Giant tube worms and blind shrimp cluster tightly around these mineral chimneys to feed on the abundant microbes.',
+      after: 'Consequently, deep-sea vents broadened scientific searches for life on icy moons beyond our solar system.',
+      options: [
+        'Even under crushing abyssal pressure and toxic water temperatures, these organisms survive without a single ray of daylight.',
+        'Shallow coral reefs rely entirely on coastal fishermen for daily mineral supplies.',
+        'Submarines rarely carry cameras when exploring freshwater rivers during summer.',
+        'Most commercial cruise ships anchor directly beside active underwater volcanoes.'
+      ],
+      correct: 'Even under crushing abyssal pressure and toxic water temperatures, these organisms survive without a single ray of daylight.'
+    },
+    fullSentences: [
+      'For centuries, biologists assumed that all life on Earth depended directly on sunlight for energy.',
+      'That assumption shattered in 1977 when oceanographers discovered thriving ecosystems around hydrothermal vents deep on the Pacific Ocean floor.',
+      'Superheated water rich in dissolved minerals rises through cracks in the volcanic crust where sunlight never penetrates.',
+      'Specialized bacteria oxidize hydrogen sulfide chemicals to manufacture organic nutrients through a process called chemosynthesis instead of photosynthesis.',
+      'Giant tube worms and blind shrimp cluster tightly around these mineral chimneys to feed on the abundant microbes.',
+      'Even under crushing abyssal pressure and toxic water temperatures, these organisms survive without a single ray of daylight.',
+      'Consequently, deep-sea vents broadened scientific searches for life on icy moons beyond our solar system.'
+    ],
+    stage3a: {
+      question: 'Highlight the sentence explaining how bacteria produce food without sunlight.',
+      correctSentenceIndex: 3
+    },
+    stage3b: {
+      question: 'Highlight the sentence naming two larger animals that live near the vents.',
+      correctSentenceIndex: 4
+    },
+    stage4: {
+      question: 'What is the main idea of this passage?',
+      options: [
+        'Hydrothermal vent ecosystems thrive on chemical energy without sunlight, reshaping ideas about where life can exist.',
+        'Submarine expeditions in 1977 failed to locate active underwater volcanoes.',
+        'Giant tube worms require bright coastal sunshine during winter migration.',
+        'Pacific shrimp swim upward to the surface every morning to eat algae.'
+      ],
+      correct: 'Hydrothermal vent ecosystems thrive on chemical energy without sunlight, reshaping ideas about where life can exist.'
+    },
+    stage5: {
+      options: [
+        'Life Without Sunlight at Deep-Sea Vents',
+        'Building Submarines for Arctic Tourism',
+        'Why Pacific Beaches Experience Summer Storms',
+        'A Guide to Raising Freshwater Shrimp'
+      ],
+      correct: 'Life Without Sunlight at Deep-Sea Vents'
+    }
+  },
+  {
+    id: 'ir4',
+    difficulty: 2,
+    title: 'The Memory Palace Technique',
+    stage1: {
+      paragraphParts: [
+        'Before printed notebooks became inexpensive, ancient Greek and Roman speakers relied on mental strategies to deliver long speeches smoothly. One famous method, known as the memory palace, links unfamiliar facts to familiar physical ',
+        '. A learner begins by picturing a building they know well, such as their childhood home or daily ',
+        ' route. Next, they place a vivid, unusual mental image for each key idea inside a specific ',
+        ' along that path. During recall, the speaker simply imagines walking through the house in order and noticing each ',
+        ' object waiting there. Modern memory champions still use this spatial approach to memorize hundreds of ',
+        ' digits within minutes.'
+      ],
+      blanks: [
+        { options: ['locations', 'recipes', 'seasons', 'salaries'], correct: 'locations' },
+        { options: ['walking', 'cooking', 'sleeping', 'painting'], correct: 'walking' },
+        { options: ['room', 'ocean', 'planet', 'cloud'], correct: 'room' },
+        { options: ['memorable', 'invisible', 'silent', 'broken'], correct: 'memorable' },
+        { options: ['random', 'heavy', 'liquid', 'wooden'], correct: 'random' }
+      ]
+    },
+    stage2: {
+      before: 'Before printed notebooks became inexpensive, ancient Greek and Roman speakers relied on mental strategies to deliver long speeches smoothly. One famous method, known as the memory palace, links unfamiliar facts to familiar physical locations. A learner begins by picturing a building they know well, such as their childhood home or daily walking route. Next, they place a vivid, unusual mental image for each key idea inside a specific room along that path. During recall, the speaker simply imagines walking through the house in order and noticing each memorable object waiting there.',
+      after: 'Modern memory champions still use this spatial approach to memorize hundreds of random digits within minutes.',
+      options: [
+        'Brain scans reveal that the technique activates spatial navigation regions that humans naturally evolved to remember landmarks.',
+        'Printed books vanished completely from ancient Roman libraries after paper was invented.',
+        'Most architecture students avoid sketching floor plans before starting homework.',
+        'Listening to loud music guarantees higher grades without reviewing lecture notes.'
+      ],
+      correct: 'Brain scans reveal that the technique activates spatial navigation regions that humans naturally evolved to remember landmarks.'
+    },
+    fullSentences: [
+      'Before printed notebooks became inexpensive, ancient Greek and Roman speakers relied on mental strategies to deliver long speeches smoothly.',
+      'One famous method, known as the memory palace, links unfamiliar facts to familiar physical locations.',
+      'A learner begins by picturing a building they know well, such as their childhood home or daily walking route.',
+      'Next, they place a vivid, unusual mental image for each key idea inside a specific room along that path.',
+      'During recall, the speaker simply imagines walking through the house in order and noticing each memorable object waiting there.',
+      'Brain scans reveal that the technique activates spatial navigation regions that humans naturally evolved to remember landmarks.',
+      'Modern memory champions still use this spatial approach to memorize hundreds of random digits within minutes.'
+    ],
+    stage3a: {
+      question: 'Highlight the sentence that explains the very first step a learner takes when building a memory palace.',
+      correctSentenceIndex: 2
+    },
+    stage3b: {
+      question: 'Highlight the sentence explaining what neuroimaging shows about how this method works.',
+      correctSentenceIndex: 5
+    },
+    stage4: {
+      question: 'What is the main idea of this passage?',
+      options: [
+        'Connecting information to familiar mental locations leverages spatial memory for reliable recall.',
+        'Ancient Greek speakers preferred reading speeches directly from expensive stone tablets.',
+        'Childhood homes should be redesigned to help students prepare for math exams.',
+        'Modern competitions forbid participants from visualizing physical rooms.'
+      ],
+      correct: 'Connecting information to familiar mental locations leverages spatial memory for reliable recall.'
+    },
+    stage5: {
+      options: [
+        'Remembering More Using a Memory Palace',
+        'Famous Palaces of Ancient Rome',
+        'Why Notebooks Replaced Public Speaking',
+        'Decorating Living Rooms for Better Sleep'
+      ],
+      correct: 'Remembering More Using a Memory Palace'
+    }
+  },
+  {
+    id: 'ir5',
+    difficulty: 4,
+    title: 'Microfinance in Rural Economies',
+    stage1: {
+      paragraphParts: [
+        'Small-scale entrepreneurs in rural villages often possess practical skills yet lack access to traditional bank credit. Conventional lenders routinely demand formal land titles or high collateral that low-income households cannot easily ',
+        '. Microfinance institutions address this gap by offering modest loans to groups of neighbors who support one another’s ',
+        '. When one tailor purchases a sewing machine or a farmer buys drought-resistant seeds, steady daily earnings help repay the ',
+        ' in small weekly installments. High repayment rates demonstrate that poor borrowers are reliable financial partners when terms fit their ',
+        '. Nevertheless, economists emphasize that credit works best when paired with business training and reliable ',
+        ' to regional markets.'
+      ],
+      blanks: [
+        { options: ['provide', 'forget', 'ignore', 'decorate'], correct: 'provide' },
+        { options: ['ventures', 'holidays', 'hobbies', 'storms'], correct: 'ventures' },
+        { options: ['principal', 'museum', 'ticket', 'calendar'], correct: 'principal' },
+        { options: ['realities', 'costumes', 'posters', 'fictions'], correct: 'realities' },
+        { options: ['access', 'traffic', 'rumors', 'noise'], correct: 'access' }
+      ]
+    },
+    stage2: {
+      before: 'Small-scale entrepreneurs in rural villages often possess practical skills yet lack access to traditional bank credit. Conventional lenders routinely demand formal land titles or high collateral that low-income households cannot easily provide. Microfinance institutions address this gap by offering modest loans to groups of neighbors who support one another’s ventures. When one tailor purchases a sewing machine or a farmer buys drought-resistant seeds, steady daily earnings help repay the principal in small weekly installments. High repayment rates demonstrate that poor borrowers are reliable financial partners when terms fit their realities.',
+      after: 'Nevertheless, economists emphasize that credit works best when paired with business training and reliable access to regional markets.',
+      options: [
+        'Group accountability also replaces expensive paperwork, lowering administrative fees for local lending cooperatives.',
+        'Major stock exchanges forbid rural farmers from selling grain during autumn harvests.',
+        'Tailors generally prefer borrowing tractors instead of repairing older sewing tools.',
+        'Urban banks stopped issuing home mortgages across Europe during the last decade.'
+      ],
+      correct: 'Group accountability also replaces expensive paperwork, lowering administrative fees for local lending cooperatives.'
+    },
+    fullSentences: [
+      'Small-scale entrepreneurs in rural villages often possess practical skills yet lack access to traditional bank credit.',
+      'Conventional lenders routinely demand formal land titles or high collateral that low-income households cannot easily provide.',
+      'Microfinance institutions address this gap by offering modest loans to groups of neighbors who support one another’s ventures.',
+      'When one tailor purchases a sewing machine or a farmer buys drought-resistant seeds, steady daily earnings help repay the principal in small weekly installments.',
+      'High repayment rates demonstrate that poor borrowers are reliable financial partners when terms fit their realities.',
+      'Group accountability also replaces expensive paperwork, lowering administrative fees for local lending cooperatives.',
+      'Nevertheless, economists emphasize that credit works best when paired with business training and reliable access to regional markets.'
+    ],
+    stage3a: {
+      question: 'Highlight the sentence explaining why conventional banks often reject rural borrowers.',
+      correctSentenceIndex: 1
+    },
+    stage3b: {
+      question: 'Highlight the sentence noting additional factors needed for small loans to succeed.',
+      correctSentenceIndex: 6
+    },
+    stage4: {
+      question: 'What is the main idea of this passage?',
+      options: [
+        'Tailored small loans help rural entrepreneurs grow businesses when combined with training and market access.',
+        'Traditional banks charge lower interest rates when borrowers lack land ownership documents.',
+        'Microfinance cooperatives operate exclusively inside large coastal financial capitals.',
+        'Weekly loan installments prevent farmers from buying seeds before spring planting.'
+      ],
+      correct: 'Tailored small loans help rural entrepreneurs grow businesses when combined with training and market access.'
+    },
+    stage5: {
+      options: [
+        'Empowering Rural Entrepreneurs Through Microfinance',
+        'A Beginner’s Guide to Stock Market Trading',
+        'Why Sewing Machines Cost More in Cities',
+        'Building Paved Highways Across Mountains'
+      ],
+      correct: 'Empowering Rural Entrepreneurs Through Microfinance'
+    }
+  },
+  {
+    id: 'ir6',
+    difficulty: 5,
+    title: 'Bioluminescent Signaling in the Ocean',
+    stage1: {
+      paragraphParts: [
+        'Beneath two hundred meters of ocean surface, sunlight fades into perpetual twilight, yet the water column glows with living light. Thousands of marine species generate bioluminescence through a chemical reaction between a pigment called luciferin and a specialized ',
+        '. Unlike incandescent bulbs that waste most electrical energy as heat, biological reactions emit virtually pure cold ',
+        '. Deep-water fish and squid deploy glowing patterns for strikingly opposite purposes: attracting unsuspecting prey, startling predators, or recognizing potential ',
+        '. Some midwater hatchetfish even adjust light organs on their bellies to match faint overhead skylight, rendering their silhouettes nearly ',
+        ' from below. Studying these luminous proteins has also transformed biomedical imaging by letting scientists ',
+        ' live cells under microscopes.'
+      ],
+      blanks: [
+        { options: ['enzyme', 'glacier', 'mineral', 'compass'], correct: 'enzyme' },
+        { options: ['light', 'smoke', 'dust', 'sound'], correct: 'light' },
+        { options: ['mates', 'bridges', 'seasons', 'islands'], correct: 'mates' },
+        { options: ['invisible', 'colorful', 'heavy', 'noisy'], correct: 'invisible' },
+        { options: ['track', 'freeze', 'delete', 'ignore'], correct: 'track' }
+      ]
+    },
+    stage2: {
+      before: 'Beneath two hundred meters of ocean surface, sunlight fades into perpetual twilight, yet the water column glows with living light. Thousands of marine species generate bioluminescence through a chemical reaction between a pigment called luciferin and a specialized enzyme. Unlike incandescent bulbs that waste most electrical energy as heat, biological reactions emit virtually pure cold light. Deep-water fish and squid deploy glowing patterns for strikingly opposite purposes: attracting unsuspecting prey, startling predators, or recognizing potential mates. Some midwater hatchetfish even adjust light organs on their bellies to match faint overhead skylight, rendering their silhouettes nearly invisible from below.',
+      after: 'Studying these luminous proteins has also transformed biomedical imaging by letting scientists track live cells under microscopes.',
+      options: [
+        'This clever camouflage strategy, called counter-illumination, shields vulnerable swimmers from upward-gazing hunters.',
+        'Solar panels installed on fishing boats harvest deep-sea bioluminescence for coastal cities.',
+        'Tropical birds frequently mimic squid light displays during autumn courtship dances.',
+        'Household flashlights rely on living marine enzymes instead of lithium batteries.'
+      ],
+      correct: 'This clever camouflage strategy, called counter-illumination, shields vulnerable swimmers from upward-gazing hunters.'
+    },
+    fullSentences: [
+      'Beneath two hundred meters of ocean surface, sunlight fades into perpetual twilight, yet the water column glows with living light.',
+      'Thousands of marine species generate bioluminescence through a chemical reaction between a pigment called luciferin and a specialized enzyme.',
+      'Unlike incandescent bulbs that waste most electrical energy as heat, biological reactions emit virtually pure cold light.',
+      'Deep-water fish and squid deploy glowing patterns for strikingly opposite purposes: attracting unsuspecting prey, startling predators, or recognizing potential mates.',
+      'Some midwater hatchetfish even adjust light organs on their bellies to match faint overhead skylight, rendering their silhouettes nearly invisible from below.',
+      'This clever camouflage strategy, called counter-illumination, shields vulnerable swimmers from upward-gazing hunters.',
+      'Studying these luminous proteins has also transformed biomedical imaging by letting scientists track live cells under microscopes.'
+    ],
+    stage3a: {
+      question: 'Highlight the sentence comparing the efficiency of bioluminescence to artificial light bulbs.',
+      correctSentenceIndex: 2
+    },
+    stage3b: {
+      question: 'Highlight the sentence explaining how bioluminescence research helps medical science.',
+      correctSentenceIndex: 6
+    },
+    stage4: {
+      question: 'What is the main idea of this passage?',
+      options: [
+        'Marine organisms produce efficient chemical light for survival and camouflage, inspiring advances in medical research.',
+        'Hatchetfish prefer swimming near sunny coral reefs during daytime hours.',
+        'Incandescent bulbs illuminate deep ocean trenches more effectively than luciferin.',
+        'Biomedical laboratories no longer rely on microscopes to inspect cells.'
+      ],
+      correct: 'Marine organisms produce efficient chemical light for survival and camouflage, inspiring advances in medical research.'
+    },
+    stage5: {
+      options: [
+        'Living Light in the Deep Ocean',
+        'How Commercial Trawlers Navigate Fog',
+        'The Invention of Household Light Bulbs',
+        'Why Coral Reefs Lose Color in Summer'
+      ],
+      correct: 'Living Light in the Deep Ocean'
+    }
   }
 ];
 
@@ -706,6 +1219,153 @@ const INTERACTIVE_LISTENING_BANK = [
       }
     ],
     summaryPrompt: 'Summarize your meeting with Dr. Patel, explaining your course plan for next semester and the next steps.'
+  },
+  {
+    id: 'il3',
+    difficulty: 3,
+    scenario: 'You are speaking with a university librarian, Mr. Alvarez, to request access to rare historical newspapers for your term paper.',
+    peerName: 'Mr. Alvarez (Librarian)',
+    turns: [
+      {
+        audioText: 'Hello! Welcome to the special collections desk. How can I assist you with your research today?',
+        options: [
+          'Hi! I am writing a history paper on 1920s city transit and hoped to view the local newspaper archive.',
+          'Can you help me order a pepperoni pizza for tonight?',
+          'I want to return three broken basketballs to the gym.',
+          'Actually, I am looking for the chemistry lab safety goggles.'
+        ],
+        correct: 'Hi! I am writing a history paper on 1920s city transit and hoped to view the local newspaper archive.'
+      },
+      {
+        audioText: 'We do hold that archive on microfilm and in original bound volumes. Do you have specific dates in mind?',
+        options: [
+          'Yes, mainly issues from spring 1924 when the first streetcar line opened downtown.',
+          'I prefer reading science fiction novels published next century.',
+          'Spring weather is usually warmer than winter snow.',
+          'No, I have no topic and no class this semester.'
+        ],
+        correct: 'Yes, mainly issues from spring 1924 when the first streetcar line opened downtown.'
+      },
+      {
+        audioText: 'Great, the 1924 microfilm reels are ready immediately, and you can export high-resolution PDF scans right from the reader.',
+        options: [
+          'That is super convenient! Do I need to bring my own USB drive to save the scanned pages?',
+          'So I should tear the original pages out of the book and take them home?',
+          'Wait, can the microfilm machine brew espresso?',
+          'I never use computers when writing papers.'
+        ],
+        correct: 'That is super convenient! Do I need to bring my own USB drive to save the scanned pages?'
+      },
+      {
+        audioText: 'Yes, bring a USB drive or you can email the PDF files directly to your university account before our reading room closes at six.',
+        options: [
+          'Perfect, I will use the scanner now and email the articles to myself before six. Thanks so much!',
+          'I will come back next year after I graduate.',
+          'Please throw away the 1924 archive tomorrow.',
+          'Thanks, I am going straight to the swimming pool instead.'
+        ],
+        correct: 'Perfect, I will use the scanner now and email the articles to myself before six. Thanks so much!'
+      }
+    ],
+    summaryPrompt: 'Summarize your conversation with Mr. Alvarez, including what archive materials you needed and how you will save them.'
+  },
+  {
+    id: 'il4',
+    difficulty: 4,
+    scenario: 'You are visiting the Study Abroad office to speak with an advisor, Claire, about a summer exchange fellowship.',
+    peerName: 'Claire (Advisor)',
+    turns: [
+      {
+        audioText: 'Hi there! Have a seat. Are you calling about the summer sustainability fellowship in Copenhagen?',
+        options: [
+          'Yes! I am an environmental science junior and wanted to confirm the eligibility rules before applying.',
+          'No, I came to repair the building’s elevator.',
+          'Copenhagen is famous for being a desert island.',
+          'I forgot what major I enrolled in yesterday.'
+        ],
+        correct: 'Yes! I am an environmental science junior and wanted to confirm the eligibility rules before applying.'
+      },
+      {
+        audioText: 'Wonderful! Applicants need at least a 3.3 GPA, two faculty recommendations, and one completed urban ecology course.',
+        options: [
+          'I meet the GPA requirement and finished urban ecology last fall, though one professor asked if she can submit her letter next Tuesday.',
+          'Wait, does GPA stand for Grand Piano Association?',
+          'I failed every science class on purpose.',
+          'Can my pet cat write the faculty recommendation?'
+        ],
+        correct: 'I meet the GPA requirement and finished urban ecology last fall, though one professor asked if she can submit her letter next Tuesday.'
+      },
+      {
+        audioText: 'That is completely fine — your personal essays are due Friday, while recommendation letters have a five-day grace period until next Wednesday.',
+        options: [
+          'What a relief! Should I also submit an official transcript, or can your office pull my records internally?',
+          'Great, so I will wait until September to submit my essay.',
+          'Let us cancel my application right now.',
+          'Do I need to mail cash inside an envelope?'
+        ],
+        correct: 'What a relief! Should I also submit an official transcript, or can your office pull my records internally?'
+      },
+      {
+        audioText: 'An unofficial PDF from the student portal is enough for the first review round; we only request official transcripts if you are nominated.',
+        options: [
+          'Got it, Claire. I will upload my essay and portal transcript by Friday and remind my professor before Tuesday.',
+          'Okay, I will delete my student portal account tonight.',
+          'I prefer applying without submitting any documents.',
+          'Thank you for the free train ticket to Antarctica.'
+        ],
+        correct: 'Got it, Claire. I will upload my essay and portal transcript by Friday and remind my professor before Tuesday.'
+      }
+    ],
+    summaryPrompt: 'Summarize your advising session with Claire, detailing the fellowship requirements, letter deadline, and transcript rules.'
+  },
+  {
+    id: 'il5',
+    difficulty: 3,
+    scenario: 'You are the treasurer of the campus Robotics Club meeting the student activities coordinator, Jordan, to approve competition travel funding.',
+    peerName: 'Jordan (Coordinator)',
+    turns: [
+      {
+        audioText: 'Hey! Thanks for sending over the Robotics Club budget sheet. Walk me through what this funding covers.',
+        options: [
+          'Sure! Most of it covers regional train tickets for six team members and registration fees for the spring robotics contest.',
+          'We want to buy fifty bicycles for a marathon.',
+          'Actually, our club only meets to watch cooking shows.',
+          'I lost the budget sheet at the grocery store.'
+        ],
+        correct: 'Sure! Most of it covers regional train tickets for six team members and registration fees for the spring robotics contest.'
+      },
+      {
+        audioText: 'The travel and registration lines look reasonable, though our office cannot reimburse hotel meals unless receipts are itemized.',
+        options: [
+          'Understood — we will keep every itemized meal receipt and stay within the forty-dollar daily student allowance.',
+          'Wait, so we should throw away all our receipts immediately?',
+          'Robots usually eat three pizzas per day.',
+          'We plan to stay in a five-star palace for three weeks.'
+        ],
+        correct: 'Understood — we will keep every itemized meal receipt and stay within the forty-dollar daily student allowance.'
+      },
+      {
+        audioText: 'Perfect. One last thing: the student senate wants clubs receiving grants to host one open campus workshop afterward.',
+        options: [
+          'We would love to! In April we can run a beginner Arduino building workshop open to all students.',
+          'No, our club refuses to let any other students enter our building.',
+          'April is when winter snowstorms begin in July.',
+          'Can we host the workshop in another country without telling anyone?'
+        ],
+        correct: 'We would love to! In April we can run a beginner Arduino building workshop open to all students.'
+      },
+      {
+        audioText: 'An April Arduino workshop checks every box. Once you upload the workshop flyer draft, I will sign off on the transfer today.',
+        options: [
+          'Awesome, Jordan! I will email you the flyer draft this afternoon so we can book the train tickets.',
+          'Wait, what is a robotics club again?',
+          'I will wait until next semester to read your email.',
+          'Please send the funding to my personal vacation account.'
+        ],
+        correct: 'Awesome, Jordan! I will email you the flyer draft this afternoon so we can book the train tickets.'
+      }
+    ],
+    summaryPrompt: 'Summarize your budget meeting with Jordan, mentioning what expenses are covered and what your club agreed to do in return.'
   }
 ];
 
@@ -744,6 +1404,42 @@ const INTERACTIVE_WRITING_BANK = [
     difficulty: 4,
     part1Prompt: 'Artificial intelligence tools can summarize textbooks and draft essays within seconds. How should schools adapt their teaching and grading methods in response?',
     part2Prompt: 'How can a student use AI productively for learning without weakening their own critical thinking skills?'
+  },
+  {
+    id: 'iw5',
+    difficulty: 2,
+    part1Prompt: 'Many schools have replaced printed textbooks with laptops or tablets. Do the advantages of digital devices outweigh the distractions they can cause in class?',
+    part2Prompt: 'What rules should teachers set so laptops support active discussion rather than distracting students?'
+  },
+  {
+    id: 'iw6',
+    difficulty: 3,
+    part1Prompt: 'Some governments require all university graduates to complete one year of community or environmental service. Would mandatory service benefit young adults and society?',
+    part2Prompt: 'What financial or career challenges might graduates face during a year of service, and how could programs support them?'
+  },
+  {
+    id: 'iw7',
+    difficulty: 3,
+    part1Prompt: 'Remote work has allowed millions of employees to move out of expensive major cities into smaller towns. How does this trend affect local small-town communities?',
+    part2Prompt: 'What infrastructure improvements do smaller towns need to welcome remote workers sustainably?'
+  },
+  {
+    id: 'iw8',
+    difficulty: 4,
+    part1Prompt: 'In many countries, museum admission is free for everyone, whereas others charge entrance fees to fund maintenance. Which approach is better for cultural preservation?',
+    part2Prompt: 'If a museum decides to remain completely free, how else can it raise steady funds for new exhibitions?'
+  },
+  {
+    id: 'iw9',
+    difficulty: 4,
+    part1Prompt: 'Fast fashion makes trendy clothing inexpensive, yet generates enormous textile waste worldwide. Should governments tax disposable clothing brands or focus on consumer education?',
+    part2Prompt: 'What everyday habits can college students adopt to reduce clothing waste without spending much money?'
+  },
+  {
+    id: 'iw10',
+    difficulty: 5,
+    part1Prompt: 'Space exploration agencies spend billions studying distant planets while urgent climate and poverty issues remain on Earth. Should space budgets be scaled back or maintained?',
+    part2Prompt: 'Give an example of how space research technologies have directly solved practical problems back on Earth.'
   }
 ];
 
@@ -787,6 +1483,66 @@ const READ_THEN_SPEAK_BANK = [
       'How format affects concentration and memory',
       'Which format you prefer for serious study and why'
     ]
+  },
+  {
+    id: 'rts5',
+    difficulty: 2,
+    prompt: 'Describe a favorite public place in your city, such as a park, market, or library.',
+    bullets: [
+      'Where this place is located and what it looks like',
+      'What activities people usually do there',
+      'Why you enjoy spending time in that environment'
+    ]
+  },
+  {
+    id: 'rts6',
+    difficulty: 3,
+    prompt: 'Talk about a teacher, coach, or mentor who positively influenced your learning.',
+    bullets: [
+      'How you met this person and what they taught',
+      'Specific advice or habits they helped you build',
+      'How their influence still shapes your goals today'
+    ]
+  },
+  {
+    id: 'rts7',
+    difficulty: 3,
+    prompt: 'Discuss whether young people today spend too much time chasing online trends.',
+    bullets: [
+      'Why social media trends spread so rapidly among youth',
+      'Positive or creative sides of online communities',
+      'How to maintain healthy boundaries with screens'
+    ]
+  },
+  {
+    id: 'rts8',
+    difficulty: 4,
+    prompt: 'Evaluate the pros and cons of studying abroad for a university degree.',
+    bullets: [
+      'Academic and career advantages of international study',
+      'Emotional or financial difficulties students may face',
+      'How a student can prepare well before leaving home'
+    ]
+  },
+  {
+    id: 'rts9',
+    difficulty: 4,
+    prompt: 'Discuss how artificial intelligence might transform one specific profession over the next decade.',
+    bullets: [
+      'Which daily tasks in that field will become automated',
+      'Which human skills will become even more valuable',
+      'How students entering that field should prepare today'
+    ]
+  },
+  {
+    id: 'rts10',
+    difficulty: 5,
+    prompt: 'Should historic city centers ban private cars altogether to create pedestrian-only zones?',
+    bullets: [
+      'Effects on local shops, air quality, and tourism',
+      'Challenges for elderly residents or delivery trucks',
+      'Practical compromises city planners could adopt'
+    ]
   }
 ];
 
@@ -805,6 +1561,31 @@ const WRITING_SAMPLE_BANK = [
     id: 'ws3',
     difficulty: 3,
     prompt: 'Describe a setback or failure that unexpectedly changed your perspective for the better. What did you learn from the experience, and how did it shape your future goals?'
+  },
+  {
+    id: 'ws4',
+    difficulty: 2,
+    prompt: 'Some people prefer following a strict daily schedule, while others thrive with spontaneous flexibility. Which approach works better for achieving long-term goals, and why?'
+  },
+  {
+    id: 'ws5',
+    difficulty: 3,
+    prompt: 'Modern schools often emphasize standardized test scores in math and science over arts and physical education. Do you agree with this priority? Support your view with specific reasons.'
+  },
+  {
+    id: 'ws6',
+    difficulty: 4,
+    prompt: 'As global tourism grows, many famous natural parks and historic towns suffer from overcrowding. How should local authorities balance economic benefits from visitors with environmental preservation?'
+  },
+  {
+    id: 'ws7',
+    difficulty: 4,
+    prompt: 'Do celebrity endorsements and social media influencers genuinely help consumers make informed choices, or do they encourage unnecessary spending? Explain your position.'
+  },
+  {
+    id: 'ws8',
+    difficulty: 5,
+    prompt: 'Rapid technological change has made lifelong learning essential for workers of every age. How should universities and employers redesign education to support adults returning to study mid-career?'
   }
 ];
 
@@ -823,6 +1604,31 @@ const SPEAKING_SAMPLE_BANK = [
     id: 'ss3',
     difficulty: 3,
     prompt: 'Tell a story about a time when you had to collaborate with someone whose working style was very different from yours. How did you handle the differences?'
+  },
+  {
+    id: 'ss4',
+    difficulty: 2,
+    prompt: 'Describe an invention from the past one hundred years that you think improved everyday life the most. Explain how daily routines looked before and after it existed.'
+  },
+  {
+    id: 'ss5',
+    difficulty: 3,
+    prompt: 'Many people say you learn more from traveling to an unfamiliar place than from reading about it in books. Do you agree or disagree? Give examples from your own perspective.'
+  },
+  {
+    id: 'ss6',
+    difficulty: 4,
+    prompt: 'Do you think competition motivates students and teams to perform at their best, or does it create unhealthy stress that harms cooperation? Explain your reasoning.'
+  },
+  {
+    id: 'ss7',
+    difficulty: 4,
+    prompt: 'Imagine your city received a major grant to improve quality of life within five years. Would you invest it in public parks, clean transportation, or vocational training centers, and why?'
+  },
+  {
+    id: 'ss8',
+    difficulty: 5,
+    prompt: 'In an era of short videos and instant headlines, how can individuals cultivate the patience required for deep reading, reflection, and long-term projects?'
   }
 ];
 
@@ -862,11 +1668,25 @@ export function shuffleArray(list) {
   return arr;
 }
 
+export function getBankCapacity(type) {
+  if (type === 'fill_blanks') return getDynamicFillCount();
+  if (type === 'read_complete') return getDynamicCTestCount();
+  return getBankForType(type).length;
+}
+
 export function pickQuestionFromBank(type, difficulty = 3, usedIds = new Set(), options = {}) {
+  const seenIds = options.seenIds instanceof Set ? options.seenIds : new Set();
+
+  if (type === 'fill_blanks') {
+    return generateDynamicFillBlanks({ difficulty, seenIds, usedIds });
+  }
+  if (type === 'read_complete') {
+    return generateDynamicReadComplete({ difficulty, seenIds, usedIds });
+  }
+
   const all = getBankForType(type);
   if (!all.length) return null;
 
-  const seenIds = options.seenIds instanceof Set ? options.seenIds : new Set();
   const preferReal = typeof options.preferReal === 'boolean' ? options.preferReal : null;
 
   // Tier 1: neither seen previously nor used in this session

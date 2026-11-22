@@ -1,4 +1,4 @@
-import { getQuestionTypeMeta, getBankForType, pickQuestionFromBank } from './questions-bank.js';
+import { getQuestionTypeMeta, getBankCapacity, pickQuestionFromBank } from './questions-bank.js';
 import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
 import { computeSubscores, nextAdaptiveDifficulty, scoreToIelts, scoreToCefr } from './scoring.js';
 import { speakText, AudioRecorder, WebcamMonitor } from './speech.js';
@@ -413,7 +413,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       }
       usedIds.add(item.id);
       if (!item.isAiGenerated) {
-        const maxKeep = Math.max(1, getBankForType(qType).length - 1);
+        const maxKeep = Math.max(1, getBankCapacity(qType) - 1);
         markSeenIds(qType, [item.id], maxKeep);
       }
       if (qType === 'read_select' && item.word) {
