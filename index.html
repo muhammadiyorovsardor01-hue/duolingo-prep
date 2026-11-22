@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DET Prep Studio — Duolingo English Test Simulator</title>
+  <meta name="theme-color" content="#FF7A00" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header id="top-nav" class="top-nav">
+      <div class="nav-inner">
+        <button class="brand-btn" data-nav="dashboard" type="button">
+          <img src="./icon.svg" alt="" class="brand-logo" />
+          <div class="brand-text">
+            <span class="brand-name">DET Prep Studio</span>
+            <span class="brand-sub" data-i18n="brandSub">AI Mock Exam &amp; Coach</span>
+          </div>
+        </button>
+
+        <nav class="nav-links" aria-label="Main navigation">
+          <button class="nav-tab active" data-nav="dashboard" type="button" data-i18n="navDashboard">Bosh sahifa</button>
+          <button class="nav-tab" data-nav="mock" type="button" data-i18n="navMock">Mock Imtihon</button>
+          <button class="nav-tab" data-nav="practice" type="button" data-i18n="navPractice">Mashqlar</button>
+          <button class="nav-tab" data-nav="mistakes" type="button">
+            <span data-i18n="navMistakes">Xatolar</span>
+            <span id="nav-mistakes-badge" class="nav-badge hidden">0</span>
+          </button>
+          <button class="nav-tab" data-nav="settings" type="button" data-i18n="navSettings">Sozlamalar</button>
+        </nav>
+
+        <div class="nav-actions">
+          <button id="ai-status-pill" class="ai-pill" data-nav="settings" type="button">
+            <span class="ai-dot"></span>
+            <span id="ai-status-text">Setup AI</span>
+          </button>
+          <div class="lang-switch" role="group" aria-label="UI Language">
+            <button id="lang-uz" class="lang-btn active" type="button">UZ</button>
+            <button id="lang-en" class="lang-btn" type="button">EN</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content" class="main-content"></main>
+  </div>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

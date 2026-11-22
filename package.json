@@ -1,0 +1,9 @@
+{
+  "name": "det-prep",
+  "version": "1.0.0",
+  "description": "Personal Duolingo English Test (DET) Mock Exam & AI Practice Studio",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}

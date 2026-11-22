@@ -1,0 +1,17 @@
+{
+  "name": "DET Prep Studio",
+  "short_name": "DET Prep",
+  "description": "Personal Duolingo English Test Mock Exam & Gemini AI Coach",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#FF7A00",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
