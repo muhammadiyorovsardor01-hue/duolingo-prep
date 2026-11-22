@@ -154,56 +154,180 @@ export function getQuestionTypeMeta(typeId) {
 }
 
 const READ_SELECT_BANK = [
-  // Real words (24)
-  { id: 'rs1', word: 'abundant', isReal: true, difficulty: 2 },
-  { id: 'rs2', word: 'reluctant', isReal: true, difficulty: 2 },
-  { id: 'rs3', word: 'ambiguous', isReal: true, difficulty: 3 },
-  { id: 'rs4', word: 'feasible', isReal: true, difficulty: 3 },
-  { id: 'rs5', word: 'mitigate', isReal: true, difficulty: 4 },
-  { id: 'rs6', word: 'ubiquitous', isReal: true, difficulty: 5 },
-  { id: 'rs7', word: 'coherent', isReal: true, difficulty: 3 },
-  { id: 'rs8', word: 'sustainable', isReal: true, difficulty: 2 },
-  { id: 'rs9', word: 'fluctuate', isReal: true, difficulty: 4 },
-  { id: 'rs10', word: 'inevitable', isReal: true, difficulty: 3 },
-  { id: 'rs11', word: 'scrutinize', isReal: true, difficulty: 4 },
-  { id: 'rs12', word: 'ephemeral', isReal: true, difficulty: 5 },
-  { id: 'rs13', word: 'curiosity', isReal: true, difficulty: 1 },
-  { id: 'rs14', word: 'volunteer', isReal: true, difficulty: 1 },
-  { id: 'rs15', word: 'compromise', isReal: true, difficulty: 2 },
-  { id: 'rs16', word: 'resilient', isReal: true, difficulty: 3 },
-  { id: 'rs17', word: 'pragmatic', isReal: true, difficulty: 4 },
-  { id: 'rs18', word: 'corroborate', isReal: true, difficulty: 5 },
-  { id: 'rs19', word: 'incentive', isReal: true, difficulty: 3 },
-  { id: 'rs20', word: 'plausible', isReal: true, difficulty: 3 },
-  { id: 'rs21', word: 'threshold', isReal: true, difficulty: 3 },
-  { id: 'rs22', word: 'adjacent', isReal: true, difficulty: 2 },
-  { id: 'rs23', word: 'discrepancy', isReal: true, difficulty: 4 },
-  { id: 'rs24', word: 'benevolent', isReal: true, difficulty: 4 },
-  // Plausible non-words (24)
-  { id: 'rs25', word: 'prevalate', isReal: false, difficulty: 3 },
-  { id: 'rs26', word: 'untrastive', isReal: false, difficulty: 2 },
-  { id: 'rs27', word: 'conglurate', isReal: false, difficulty: 4 },
-  { id: 'rs28', word: 'relimination', isReal: false, difficulty: 2 },
-  { id: 'rs29', word: 'strenuousity', isReal: false, difficulty: 4 },
-  { id: 'rs30', word: 'flimbering', isReal: false, difficulty: 2 },
-  { id: 'rs31', word: 'subverent', isReal: false, difficulty: 3 },
-  { id: 'rs32', word: 'proclivate', isReal: false, difficulty: 4 },
-  { id: 'rs33', word: 'dispartment', isReal: false, difficulty: 2 },
-  { id: 'rs34', word: 'intermize', isReal: false, difficulty: 3 },
-  { id: 'rs35', word: 'explanory', isReal: false, difficulty: 2 },
-  { id: 'rs36', word: 'perspiciously', isReal: false, difficulty: 5 },
-  { id: 'rs37', word: 'gradualize', isReal: false, difficulty: 3 },
-  { id: 'rs38', word: 'benevolenceful', isReal: false, difficulty: 4 },
-  { id: 'rs39', word: 'confabulatex', isReal: false, difficulty: 5 },
-  { id: 'rs40', word: 'incredient', isReal: false, difficulty: 1 },
-  { id: 'rs41', word: 'mistraveling', isReal: false, difficulty: 1 },
-  { id: 'rs42', word: 'obliquence', isReal: false, difficulty: 4 },
-  { id: 'rs43', word: 'quantisible', isReal: false, difficulty: 3 },
-  { id: 'rs44', word: 'reconsidate', isReal: false, difficulty: 3 },
-  { id: 'rs45', word: 'tranquilityness', isReal: false, difficulty: 2 },
-  { id: 'rs46', word: 'veritacious', isReal: false, difficulty: 5 },
-  { id: 'rs47', word: 'apprehendive', isReal: false, difficulty: 3 },
-  { id: 'rs48', word: 'solicitousness', isReal: false, difficulty: 5 }
+  // Level 1 Real (16)
+  { id: 'rs1', word: 'curiosity', isReal: true, difficulty: 1 },
+  { id: 'rs2', word: 'volunteer', isReal: true, difficulty: 1 },
+  { id: 'rs3', word: 'calendar', isReal: true, difficulty: 1 },
+  { id: 'rs4', word: 'library', isReal: true, difficulty: 1 },
+  { id: 'rs5', word: 'neighbor', isReal: true, difficulty: 1 },
+  { id: 'rs6', word: 'schedule', isReal: true, difficulty: 1 },
+  { id: 'rs7', word: 'umbrella', isReal: true, difficulty: 1 },
+  { id: 'rs8', word: 'celebrate', isReal: true, difficulty: 1 },
+  { id: 'rs9', word: 'familiar', isReal: true, difficulty: 1 },
+  { id: 'rs10', word: 'ordinary', isReal: true, difficulty: 1 },
+  { id: 'rs11', word: 'organize', isReal: true, difficulty: 1 },
+  { id: 'rs12', word: 'grateful', isReal: true, difficulty: 1 },
+  { id: 'rs13', word: 'decision', isReal: true, difficulty: 1 },
+  { id: 'rs14', word: 'valuable', isReal: true, difficulty: 1 },
+  { id: 'rs15', word: 'reliable', isReal: true, difficulty: 1 },
+  { id: 'rs16', word: 'discover', isReal: true, difficulty: 1 },
+  // Level 1 Fake (16)
+  { id: 'rs17', word: 'incredient', isReal: false, difficulty: 1 },
+  { id: 'rs18', word: 'mistraveling', isReal: false, difficulty: 1 },
+  { id: 'rs19', word: 'confusation', isReal: false, difficulty: 1 },
+  { id: 'rs20', word: 'unhelpish', isReal: false, difficulty: 1 },
+  { id: 'rs21', word: 'believation', isReal: false, difficulty: 1 },
+  { id: 'rs22', word: 'friendlessity', isReal: false, difficulty: 1 },
+  { id: 'rs23', word: 'misrememberful', isReal: false, difficulty: 1 },
+  { id: 'rs24', word: 'happyment', isReal: false, difficulty: 1 },
+  { id: 'rs25', word: 'carefullyness', isReal: false, difficulty: 1 },
+  { id: 'rs26', word: 'studyness', isReal: false, difficulty: 1 },
+  { id: 'rs27', word: 'explaination', isReal: false, difficulty: 1 },
+  { id: 'rs28', word: 'thinkment', isReal: false, difficulty: 1 },
+  { id: 'rs29', word: 'travelment', isReal: false, difficulty: 1 },
+  { id: 'rs30', word: 'readation', isReal: false, difficulty: 1 },
+  { id: 'rs31', word: 'playness', isReal: false, difficulty: 1 },
+  { id: 'rs32', word: 'talkment', isReal: false, difficulty: 1 },
+
+  // Level 2 Real (16)
+  { id: 'rs33', word: 'abundant', isReal: true, difficulty: 2 },
+  { id: 'rs34', word: 'reluctant', isReal: true, difficulty: 2 },
+  { id: 'rs35', word: 'sustainable', isReal: true, difficulty: 2 },
+  { id: 'rs36', word: 'compromise', isReal: true, difficulty: 2 },
+  { id: 'rs37', word: 'adjacent', isReal: true, difficulty: 2 },
+  { id: 'rs38', word: 'adequate', isReal: true, difficulty: 2 },
+  { id: 'rs39', word: 'hesitate', isReal: true, difficulty: 2 },
+  { id: 'rs40', word: 'generate', isReal: true, difficulty: 2 },
+  { id: 'rs41', word: 'allocate', isReal: true, difficulty: 2 },
+  { id: 'rs42', word: 'consequence', isReal: true, difficulty: 2 },
+  { id: 'rs43', word: 'distinct', isReal: true, difficulty: 2 },
+  { id: 'rs44', word: 'relevant', isReal: true, difficulty: 2 },
+  { id: 'rs45', word: 'accurate', isReal: true, difficulty: 2 },
+  { id: 'rs46', word: 'persuade', isReal: true, difficulty: 2 },
+  { id: 'rs47', word: 'strategy', isReal: true, difficulty: 2 },
+  { id: 'rs48', word: 'moderate', isReal: true, difficulty: 2 },
+  // Level 2 Fake (16)
+  { id: 'rs49', word: 'untrastive', isReal: false, difficulty: 2 },
+  { id: 'rs50', word: 'relimination', isReal: false, difficulty: 2 },
+  { id: 'rs51', word: 'flimbering', isReal: false, difficulty: 2 },
+  { id: 'rs52', word: 'dispartment', isReal: false, difficulty: 2 },
+  { id: 'rs53', word: 'explanory', isReal: false, difficulty: 2 },
+  { id: 'rs54', word: 'tranquilityness', isReal: false, difficulty: 2 },
+  { id: 'rs55', word: 'adjacenceful', isReal: false, difficulty: 2 },
+  { id: 'rs56', word: 'compenstate', isReal: false, difficulty: 2 },
+  { id: 'rs57', word: 'reluctation', isReal: false, difficulty: 2 },
+  { id: 'rs58', word: 'abundanize', isReal: false, difficulty: 2 },
+  { id: 'rs59', word: 'persuadation', isReal: false, difficulty: 2 },
+  { id: 'rs60', word: 'moderatelyness', isReal: false, difficulty: 2 },
+  { id: 'rs61', word: 'strategiful', isReal: false, difficulty: 2 },
+  { id: 'rs62', word: 'hesitatious', isReal: false, difficulty: 2 },
+  { id: 'rs63', word: 'accuratement', isReal: false, difficulty: 2 },
+  { id: 'rs64', word: 'consequate', isReal: false, difficulty: 2 },
+
+  // Level 3 Real (16)
+  { id: 'rs65', word: 'ambiguous', isReal: true, difficulty: 3 },
+  { id: 'rs66', word: 'feasible', isReal: true, difficulty: 3 },
+  { id: 'rs67', word: 'coherent', isReal: true, difficulty: 3 },
+  { id: 'rs68', word: 'inevitable', isReal: true, difficulty: 3 },
+  { id: 'rs69', word: 'resilient', isReal: true, difficulty: 3 },
+  { id: 'rs70', word: 'incentive', isReal: true, difficulty: 3 },
+  { id: 'rs71', word: 'plausible', isReal: true, difficulty: 3 },
+  { id: 'rs72', word: 'threshold', isReal: true, difficulty: 3 },
+  { id: 'rs73', word: 'arbitrary', isReal: true, difficulty: 3 },
+  { id: 'rs74', word: 'empirical', isReal: true, difficulty: 3 },
+  { id: 'rs75', word: 'implement', isReal: true, difficulty: 3 },
+  { id: 'rs76', word: 'consensus', isReal: true, difficulty: 3 },
+  { id: 'rs77', word: 'advocate', isReal: true, difficulty: 3 },
+  { id: 'rs78', word: 'cumulative', isReal: true, difficulty: 3 },
+  { id: 'rs79', word: 'paradigm', isReal: true, difficulty: 3 },
+  { id: 'rs80', word: 'complement', isReal: true, difficulty: 3 },
+  // Level 3 Fake (16)
+  { id: 'rs81', word: 'prevalate', isReal: false, difficulty: 3 },
+  { id: 'rs82', word: 'subverent', isReal: false, difficulty: 3 },
+  { id: 'rs83', word: 'intermize', isReal: false, difficulty: 3 },
+  { id: 'rs84', word: 'graduatious', isReal: false, difficulty: 3 },
+  { id: 'rs85', word: 'quantisible', isReal: false, difficulty: 3 },
+  { id: 'rs86', word: 'reconsidate', isReal: false, difficulty: 3 },
+  { id: 'rs87', word: 'apprehendive', isReal: false, difficulty: 3 },
+  { id: 'rs88', word: 'plausivate', isReal: false, difficulty: 3 },
+  { id: 'rs89', word: 'thresholize', isReal: false, difficulty: 3 },
+  { id: 'rs90', word: 'coherentiate', isReal: false, difficulty: 3 },
+  { id: 'rs91', word: 'incentivate', isReal: false, difficulty: 3 },
+  { id: 'rs92', word: 'empiricate', isReal: false, difficulty: 3 },
+  { id: 'rs93', word: 'advocatious', isReal: false, difficulty: 3 },
+  { id: 'rs94', word: 'cumulativity', isReal: false, difficulty: 3 },
+  { id: 'rs95', word: 'paradigmal', isReal: false, difficulty: 3 },
+  { id: 'rs96', word: 'complementize', isReal: false, difficulty: 3 },
+
+  // Level 4 Real (16)
+  { id: 'rs97', word: 'mitigate', isReal: true, difficulty: 4 },
+  { id: 'rs98', word: 'fluctuate', isReal: true, difficulty: 4 },
+  { id: 'rs99', word: 'scrutinize', isReal: true, difficulty: 4 },
+  { id: 'rs100', word: 'pragmatic', isReal: true, difficulty: 4 },
+  { id: 'rs101', word: 'discrepancy', isReal: true, difficulty: 4 },
+  { id: 'rs102', word: 'benevolent', isReal: true, difficulty: 4 },
+  { id: 'rs103', word: 'exacerbate', isReal: true, difficulty: 4 },
+  { id: 'rs104', word: 'proliferate', isReal: true, difficulty: 4 },
+  { id: 'rs105', word: 'ambivalent', isReal: true, difficulty: 4 },
+  { id: 'rs106', word: 'meticulous', isReal: true, difficulty: 4 },
+  { id: 'rs107', word: 'alleviate', isReal: true, difficulty: 4 },
+  { id: 'rs108', word: 'preclude', isReal: true, difficulty: 4 },
+  { id: 'rs109', word: 'substantiate', isReal: true, difficulty: 4 },
+  { id: 'rs110', word: 'contingent', isReal: true, difficulty: 4 },
+  { id: 'rs111', word: 'disseminate', isReal: true, difficulty: 4 },
+  { id: 'rs112', word: 'culminate', isReal: true, difficulty: 4 },
+  // Level 4 Fake (16)
+  { id: 'rs113', word: 'conglurate', isReal: false, difficulty: 4 },
+  { id: 'rs114', word: 'strenuousity', isReal: false, difficulty: 4 },
+  { id: 'rs115', word: 'proclivate', isReal: false, difficulty: 4 },
+  { id: 'rs116', word: 'benevolenceful', isReal: false, difficulty: 4 },
+  { id: 'rs117', word: 'obliquence', isReal: false, difficulty: 4 },
+  { id: 'rs118', word: 'mitigulate', isReal: false, difficulty: 4 },
+  { id: 'rs119', word: 'fluctuosity', isReal: false, difficulty: 4 },
+  { id: 'rs120', word: 'scrutinizate', isReal: false, difficulty: 4 },
+  { id: 'rs121', word: 'pragmatify', isReal: false, difficulty: 4 },
+  { id: 'rs122', word: 'discrepate', isReal: false, difficulty: 4 },
+  { id: 'rs123', word: 'exacerbrate', isReal: false, difficulty: 4 },
+  { id: 'rs124', word: 'proliferious', isReal: false, difficulty: 4 },
+  { id: 'rs125', word: 'ambivalate', isReal: false, difficulty: 4 },
+  { id: 'rs126', word: 'meticulize', isReal: false, difficulty: 4 },
+  { id: 'rs127', word: 'alleviationly', isReal: false, difficulty: 4 },
+  { id: 'rs128', word: 'precludence', isReal: false, difficulty: 4 },
+
+  // Level 5 Real (16)
+  { id: 'rs129', word: 'ubiquitous', isReal: true, difficulty: 5 },
+  { id: 'rs130', word: 'ephemeral', isReal: true, difficulty: 5 },
+  { id: 'rs131', word: 'corroborate', isReal: true, difficulty: 5 },
+  { id: 'rs132', word: 'magnanimous', isReal: true, difficulty: 5 },
+  { id: 'rs133', word: 'obfuscate', isReal: true, difficulty: 5 },
+  { id: 'rs134', word: 'recalcitrant', isReal: true, difficulty: 5 },
+  { id: 'rs135', word: 'idiosyncrasy', isReal: true, difficulty: 5 },
+  { id: 'rs136', word: 'juxtapose', isReal: true, difficulty: 5 },
+  { id: 'rs137', word: 'perspicacious', isReal: true, difficulty: 5 },
+  { id: 'rs138', word: 'equanimity', isReal: true, difficulty: 5 },
+  { id: 'rs139', word: 'taciturn', isReal: true, difficulty: 5 },
+  { id: 'rs140', word: 'superfluous', isReal: true, difficulty: 5 },
+  { id: 'rs141', word: 'intransigent', isReal: true, difficulty: 5 },
+  { id: 'rs142', word: 'anachronism', isReal: true, difficulty: 5 },
+  { id: 'rs143', word: 'circumspect', isReal: true, difficulty: 5 },
+  { id: 'rs144', word: 'propensity', isReal: true, difficulty: 5 },
+  // Level 5 Fake (16)
+  { id: 'rs145', word: 'perspicuate', isReal: false, difficulty: 5 },
+  { id: 'rs146', word: 'confabulious', isReal: false, difficulty: 5 },
+  { id: 'rs147', word: 'veritacious', isReal: false, difficulty: 5 },
+  { id: 'rs148', word: 'ubiquitence', isReal: false, difficulty: 5 },
+  { id: 'rs149', word: 'ephemerious', isReal: false, difficulty: 5 },
+  { id: 'rs150', word: 'corroborify', isReal: false, difficulty: 5 },
+  { id: 'rs151', word: 'magnanimious', isReal: false, difficulty: 5 },
+  { id: 'rs152', word: 'obfuscal', isReal: false, difficulty: 5 },
+  { id: 'rs153', word: 'recalcitrious', isReal: false, difficulty: 5 },
+  { id: 'rs154', word: 'juxtaposent', isReal: false, difficulty: 5 },
+  { id: 'rs155', word: 'equanimical', isReal: false, difficulty: 5 },
+  { id: 'rs156', word: 'taciturnize', isReal: false, difficulty: 5 },
+  { id: 'rs157', word: 'superfluicate', isReal: false, difficulty: 5 },
+  { id: 'rs158', word: 'intransigentize', isReal: false, difficulty: 5 },
+  { id: 'rs159', word: 'anachronate', isReal: false, difficulty: 5 },
+  { id: 'rs160', word: 'circumspectious', isReal: false, difficulty: 5 }
 ];
 
 const FILL_BLANKS_BANK = [
@@ -729,15 +853,74 @@ export function getBankForType(type) {
   }
 }
 
-export function pickQuestionFromBank(type, difficulty = 3, usedIds = new Set()) {
+export function shuffleArray(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+export function pickQuestionFromBank(type, difficulty = 3, usedIds = new Set(), options = {}) {
   const all = getBankForType(type);
   if (!all.length) return null;
-  const unused = all.filter((q) => !usedIds.has(q.id));
-  const pool = unused.length ? unused : all;
-  // Prefer items close to target difficulty
-  const sorted = [...pool].sort(
-    (a, b) => Math.abs((a.difficulty || 3) - difficulty) - Math.abs((b.difficulty || 3) - difficulty)
-  );
-  const topCandidates = sorted.slice(0, Math.min(4, sorted.length));
-  return topCandidates[Math.floor(Math.random() * topCandidates.length)];
+
+  const seenIds = options.seenIds instanceof Set ? options.seenIds : new Set();
+  const preferReal = typeof options.preferReal === 'boolean' ? options.preferReal : null;
+
+  // Tier 1: neither seen previously nor used in this session
+  let pool = all.filter((q) => !usedIds.has(q.id) && !seenIds.has(q.id));
+  // Tier 2: not used in this session (if entire bank was seen in previous rounds)
+  if (!pool.length) {
+    pool = all.filter((q) => !usedIds.has(q.id));
+  }
+  // Tier 3: fallback to full bank
+  if (!pool.length) {
+    pool = all;
+  }
+
+  if (preferReal !== null) {
+    const matchingPolar = pool.filter((q) => Boolean(q.isReal) === preferReal);
+    if (matchingPolar.length > 0) {
+      pool = matchingPolar;
+    }
+  }
+
+  // Shuffle first so selection is never biased toward top-of-array entries
+  const shuffled = shuffleArray(pool);
+  const exactDiff = shuffled.filter((q) => (q.difficulty || 3) === difficulty);
+  if (exactDiff.length > 0) {
+    return exactDiff[Math.floor(Math.random() * exactDiff.length)];
+  }
+  const nearDiff = shuffled.filter((q) => Math.abs((q.difficulty || 3) - difficulty) <= 1);
+  if (nearDiff.length > 0) {
+    return nearDiff[Math.floor(Math.random() * nearDiff.length)];
+  }
+  return shuffled[0];
+}
+
+export function buildReadSelectRound({ count = 15, difficulty = 3, seenIds = new Set(), usedIds = new Set() } = {}) {
+  const localUsed = new Set(usedIds);
+  const realTarget = Math.random() < 0.5 ? Math.floor(count / 2) : Math.ceil(count / 2);
+  const fakeTarget = count - realTarget;
+  const polarityPlan = shuffleArray([
+    ...new Array(realTarget).fill(true),
+    ...new Array(fakeTarget).fill(false)
+  ]);
+
+  const round = [];
+  for (let i = 0; i < count; i++) {
+    // Allow natural +/-1 difficulty variety across a round while centering on target difficulty
+    const stepDiff = Math.max(1, Math.min(5, difficulty + (i % 3 === 0 ? 0 : (Math.random() < 0.5 ? -1 : 1))));
+    const item = pickQuestionFromBank('read_select', stepDiff, localUsed, {
+      seenIds,
+      preferReal: polarityPlan[i]
+    });
+    if (item) {
+      localUsed.add(item.id);
+      round.push(item);
+    }
+  }
+  return shuffleArray(round);
 }

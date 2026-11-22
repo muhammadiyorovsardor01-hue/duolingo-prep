@@ -9,12 +9,23 @@ import {
   getEstimatedScores,
   exportBackupJSON,
   importBackupJSON,
-  resetAllData
+  resetAllData,
+  getSeenIds,
+  markSeenIds,
+  getRecentReadSelectWords,
+  recordRecentReadSelectWords
 } from './storage.js';
 import { t } from './i18n.js';
-import { QUESTION_TYPES, getQuestionTypeMeta, pickQuestionFromBank } from './questions-bank.js';
+import {
+  QUESTION_TYPES,
+  getQuestionTypeMeta,
+  getBankForType,
+  pickQuestionFromBank,
+  shuffleArray,
+  buildReadSelectRound
+} from './questions-bank.js';
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, pctToDetScore, roundDetScore } from './scoring.js';
-import { GEMINI_MODELS, testConnection, generateQuestion } from './gemini.js';
+import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText } from './speech.js';
 import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound } from './sounds.js';
 import {
@@ -495,8 +506,15 @@ function startPracticeSession(typeId, useAi) {
   const totalItems = meta.sessionLength || 1;
   const sessionStartedAt = Date.now();
   const usedIds = new Set();
+  const seenIds = getSeenIds(typeId);
+  const maxKeep = Math.max(1, getBankForType(typeId).length - 1);
   const sessionResults = [];
   const isObjective = ['read_select', 'fill_blanks', 'read_complete', 'listen_type', 'interactive_reading'].includes(typeId);
+
+  const realCount = Math.random() < 0.5 ? Math.floor(totalItems / 2) : Math.ceil(totalItems / 2);
+  const polaritySchedule = typeId === 'read_select'
+    ? shuffleArray([...new Array(realCount).fill(true), ...new Array(totalItems - realCount).fill(false)])
+    : [];
 
   let currentIndex = 0;
   let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
@@ -507,6 +525,7 @@ function startPracticeSession(typeId, useAi) {
   let activeRenderer = null;
   let continueKeyListener = null;
   let prefetchedNext = null;
+  let batchQueue = null;
 
   topNavEl?.classList.add('hidden');
   mainEl?.classList.add('arena-mode');
@@ -557,7 +576,7 @@ function startPracticeSession(typeId, useAi) {
 
   const prefetchAiItem = (idx, diff) => {
     const s = loadState().settings;
-    if (!useAi || !s.apiKey || idx >= totalItems) {
+    if (!useAi || !s.apiKey || idx >= totalItems || typeId === 'read_select') {
       prefetchedNext = null;
       return;
     }
@@ -687,7 +706,42 @@ function startPracticeSession(typeId, useAi) {
     if (levelTag) levelTag.textContent = `Level ${currentDiff}/5`;
 
     let item = null;
-    if (useAi && settings.apiKey) {
+    if (typeId === 'read_select' && useAi && settings.apiKey) {
+      if (!batchQueue) {
+        if (cardEl) {
+          cardEl.innerHTML = `
+            <div style="text-align:center;padding:32px 12px;">
+              <div style="font-size:32px;margin-bottom:8px;">✨</div>
+              <div style="font-weight:800;">${escapeHtml(t(lang, 'generatingAi'))}</div>
+            </div>
+          `;
+        }
+        try {
+          const aiWords = await generateReadSelectBatch({
+            apiKey: settings.apiKey,
+            model: settings.model,
+            count: totalItems,
+            difficulty: currentDiff,
+            avoidWords: getRecentReadSelectWords()
+          });
+          batchQueue = [...aiWords];
+          if (batchQueue.length < totalItems) {
+            const filler = buildReadSelectRound({
+              count: totalItems - batchQueue.length,
+              difficulty: currentDiff,
+              seenIds,
+              usedIds
+            });
+            batchQueue.push(...filler);
+          }
+          batchQueue = shuffleArray(batchQueue);
+        } catch (err) {
+          showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+          batchQueue = buildReadSelectRound({ count: totalItems, difficulty: currentDiff, seenIds, usedIds });
+        }
+      }
+      item = batchQueue[currentIndex] || pickQuestionFromBank(typeId, currentDiff, usedIds, { seenIds });
+    } else if (useAi && settings.apiKey) {
       if (prefetchedNext && prefetchedNext.index === currentIndex) {
         item = await prefetchedNext.promise;
       }
@@ -704,15 +758,25 @@ function startPracticeSession(typeId, useAi) {
           item = await generateQuestion({ apiKey: settings.apiKey, model: settings.model, type: typeId, difficulty: currentDiff });
         } catch (err) {
           showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
-          item = pickQuestionFromBank(typeId, currentDiff, usedIds);
+          item = pickQuestionFromBank(typeId, currentDiff, usedIds, { seenIds });
         }
       }
     } else {
-      item = pickQuestionFromBank(typeId, currentDiff, usedIds);
+      item = pickQuestionFromBank(typeId, currentDiff, usedIds, {
+        seenIds,
+        preferReal: typeId === 'read_select' ? polaritySchedule[currentIndex] : null
+      });
     }
 
     if (aborted) return;
     usedIds.add(item.id);
+    if (!item.isAiGenerated) {
+      seenIds.add(item.id);
+      markSeenIds(typeId, [item.id], maxKeep);
+    }
+    if (typeId === 'read_select' && item.word) {
+      recordRecentReadSelectWords([item.word]);
+    }
     prefetchAiItem(currentIndex + 1, currentDiff);
 
     cardEl.innerHTML = `<div id="dp-mount"></div><div id="dp-ai-fb"></div>`;

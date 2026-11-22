@@ -31,7 +31,9 @@ function createDefaultState() {
     examHistory: [],
     practiceStats: {},
     dailyActivity: {},
-    mistakes: []
+    mistakes: [],
+    seenIds: {},
+    recentWords: []
   };
 }
 
@@ -56,7 +58,9 @@ export function loadState() {
       examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : [],
       practiceStats: parsed.practiceStats && typeof parsed.practiceStats === 'object' ? parsed.practiceStats : {},
       dailyActivity: parsed.dailyActivity && typeof parsed.dailyActivity === 'object' ? parsed.dailyActivity : {},
-      mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes : []
+      mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes : [],
+      seenIds: parsed.seenIds && typeof parsed.seenIds === 'object' ? parsed.seenIds : {},
+      recentWords: Array.isArray(parsed.recentWords) ? parsed.recentWords : []
     };
   } catch {
     return createDefaultState();
@@ -277,10 +281,54 @@ export function importBackupJSON(jsonText) {
     examHistory: Array.isArray(parsed.examHistory) ? parsed.examHistory : current.examHistory,
     practiceStats: parsed.practiceStats || current.practiceStats,
     dailyActivity: parsed.dailyActivity || current.dailyActivity,
-    mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes : current.mistakes
+    mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes : current.mistakes,
+    seenIds: parsed.seenIds && typeof parsed.seenIds === 'object' ? parsed.seenIds : current.seenIds,
+    recentWords: Array.isArray(parsed.recentWords) ? parsed.recentWords : current.recentWords
   };
   saveState(next);
   return next;
+}
+
+export function getSeenIds(typeId, state = loadState()) {
+  const list = state.seenIds?.[typeId];
+  return new Set(Array.isArray(list) ? list : []);
+}
+
+export function markSeenIds(typeId, ids = [], maxKeep = 0) {
+  if (!typeId || !Array.isArray(ids) || ids.length === 0) return;
+  const state = loadState();
+  const prev = Array.isArray(state.seenIds?.[typeId]) ? state.seenIds[typeId] : [];
+  const merged = [...prev];
+  for (const id of ids) {
+    if (!id) continue;
+    const idx = merged.indexOf(id);
+    if (idx !== -1) merged.splice(idx, 1);
+    merged.push(id);
+  }
+  const trimmed = maxKeep > 0 && merged.length > maxKeep
+    ? merged.slice(merged.length - maxKeep)
+    : merged;
+  state.seenIds = { ...(state.seenIds || {}), [typeId]: trimmed };
+  saveState(state);
+}
+
+export function getRecentReadSelectWords(state = loadState()) {
+  return Array.isArray(state.recentWords) ? [...state.recentWords] : [];
+}
+
+export function recordRecentReadSelectWords(words = []) {
+  if (!Array.isArray(words) || words.length === 0) return;
+  const state = loadState();
+  const merged = Array.isArray(state.recentWords) ? [...state.recentWords] : [];
+  for (const raw of words) {
+    const clean = String(raw || '').trim().toLowerCase();
+    if (!clean) continue;
+    const idx = merged.indexOf(clean);
+    if (idx !== -1) merged.splice(idx, 1);
+    merged.push(clean);
+  }
+  state.recentWords = merged.length > 150 ? merged.slice(merged.length - 150) : merged;
+  saveState(state);
 }
 
 export function resetAllData() {

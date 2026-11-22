@@ -393,3 +393,54 @@ export async function generateQuestion({ apiKey, model = DEFAULT_GEMINI_MODEL, t
   const raw = await callGemini({ apiKey, model, parts: [{ text: prompt }], temperature: 0.85 });
   return validateGeneratedQuestion(type, raw, difficulty);
 }
+
+export async function generateReadSelectBatch({
+  apiKey,
+  model = DEFAULT_GEMINI_MODEL,
+  count = 15,
+  difficulty = 3,
+  avoidWords = []
+}) {
+  const cefr = CEFR_BY_DIFF[difficulty] || CEFR_BY_DIFF[3];
+  const realCount = Math.floor(count / 2);
+  const fakeCount = count - realCount;
+  const avoidSet = new Set((avoidWords || []).map((w) => String(w || '').trim().toLowerCase()).filter(Boolean));
+  const avoidSnippet = avoidWords.length
+    ? `Strictly DO NOT use any of these previously seen words: ${avoidWords.slice(-60).join(', ')}.`
+    : '';
+
+  const prompt = `Create a batch of ${count} unique Duolingo English Test "Read and Select" vocabulary items at level ${cefr}.
+Include ${realCount} genuine, unmistakable standard English words (single lowercase words, no hyphens/spaces) and ${fakeCount} plausible English-looking fake non-words (invented pseudowords that do not exist in any English dictionary, like "prevalate" or "untrastive").
+${avoidSnippet}
+Return ONLY valid JSON with this exact schema:
+{
+  "items": [
+    { "word": "example", "isReal": true },
+    { "word": "prevalate", "isReal": false }
+  ]
+}`;
+
+  const raw = await callGemini({ apiKey, model, parts: [{ text: prompt }], temperature: 0.95 });
+  const list = Array.isArray(raw?.items) ? raw.items : [];
+  const seenBatch = new Set();
+  const validated = [];
+
+  for (const entry of list) {
+    const word = String(entry?.word || '').trim().toLowerCase();
+    if (!word || !/^[a-z]{3,20}$/.test(word)) continue;
+    if (typeof entry?.isReal !== 'boolean') continue;
+    if (avoidSet.has(word) || seenBatch.has(word)) continue;
+    seenBatch.add(word);
+    validated.push({
+      id: `ai_rs_${Date.now()}_${validated.length}_${Math.random().toString(36).slice(2, 6)}`,
+      type: 'read_select',
+      word,
+      isReal: entry.isReal,
+      difficulty,
+      isAiGenerated: true
+    });
+    if (validated.length >= count) break;
+  }
+
+  return validated;
+}

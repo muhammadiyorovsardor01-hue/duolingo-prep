@@ -1,9 +1,16 @@
-import { getQuestionTypeMeta, pickQuestionFromBank } from './questions-bank.js';
+import { getQuestionTypeMeta, getBankForType, pickQuestionFromBank } from './questions-bank.js';
 import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
 import { computeSubscores, nextAdaptiveDifficulty, scoreToIelts, scoreToCefr } from './scoring.js';
 import { speakText, AudioRecorder, WebcamMonitor } from './speech.js';
 import { generateQuestion } from './gemini.js';
-import { recordExamReport, addMistake } from './storage.js';
+import {
+  recordExamReport,
+  addMistake,
+  getSeenIds,
+  markSeenIds,
+  getRecentReadSelectWords,
+  recordRecentReadSelectWords
+} from './storage.js';
 import { t } from './i18n.js';
 
 export const EXPRESS_BLUEPRINT = [
@@ -377,7 +384,8 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
             apiKey: settings.apiKey,
             model: settings.model,
             type: nextType,
-            difficulty: diff
+            difficulty: diff,
+            recentPrompts: nextType === 'read_select' ? getRecentReadSelectWords().slice(-30) : []
           }).catch(() => null)
         };
       } else {
@@ -400,9 +408,17 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         item = await prefetchedNext.promise;
       }
       if (!item) {
-        item = pickQuestionFromBank(qType, currentDifficulty, usedIds);
+        const seenIds = getSeenIds(qType);
+        item = pickQuestionFromBank(qType, currentDifficulty, usedIds, { seenIds });
       }
       usedIds.add(item.id);
+      if (!item.isAiGenerated) {
+        const maxKeep = Math.max(1, getBankForType(qType).length - 1);
+        markSeenIds(qType, [item.id], maxKeep);
+      }
+      if (qType === 'read_select' && item.word) {
+        recordRecentReadSelectWords([item.word]);
+      }
 
       // Update header progress
       const stepEl = container.querySelector('#ar-step');
