@@ -863,15 +863,17 @@ button {
 /* Read and Select */
 .word-showcase {
   text-align: center;
-  padding: 34px 20px;
-  margin: 12px 0 26px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  padding: 24px 28px;
+  margin: 14px auto 22px;
+  max-width: 460px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 3px 0 var(--border);
 }
 
 .word-showcase-text {
-  font-size: 40px;
+  font-size: 34px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -880,25 +882,35 @@ button {
 .yes-no-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  max-width: 440px;
+  gap: 14px;
+  max-width: 380px;
   margin: 0 auto;
 }
 
 .choice-tile {
-  border: 2px solid var(--border);
+  border: 2px solid var(--border-strong);
+  border-bottom-width: 4px;
   background: var(--surface);
   border-radius: 14px;
-  padding: 16px 20px;
+  padding: 14px 18px;
   font-size: 16px;
   font-weight: 800;
   color: var(--ink);
-  transition: all 0.14s ease;
+  transition: transform 0.08s ease, border-color 0.14s ease, background 0.14s ease;
 }
 
-.choice-tile:hover {
+.choice-tile:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.choice-tile:active:not(:disabled) {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+
+.choice-tile:disabled {
+  cursor: default;
 }
 
 .choice-tile.selected {
@@ -909,14 +921,14 @@ button {
 
 .choice-tile.correct {
   border-color: var(--green);
-  background: var(--green-soft);
-  color: #187A38;
+  background: #D7FFB8;
+  color: #1A7A2E;
 }
 
 .choice-tile.wrong {
   border-color: var(--red);
-  background: var(--red-soft);
-  color: var(--red);
+  background: #FFDFE0;
+  color: #B42318;
 }
 
 /* C-Test / Fill in the Blanks Character Boxes */
@@ -1473,6 +1485,247 @@ button {
   .word-showcase-text {
     font-size: 30px;
   }
+
+  .det-practice-card {
+    padding: 22px 18px;
+  }
+
+  .det-fb-inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* AUTHENTIC DET FULL-VIEWPORT PRACTICE SHELL */
+.det-practice-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #FFFFFF;
+}
+
+.det-practice-topbar {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 16px 24px 10px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.det-exit-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-muted);
+  font-size: 16px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.det-exit-btn:hover {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.det-prog-track {
+  flex: 1;
+  height: 12px;
+  background: #E5E9F0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.det-prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FF9600, #FF7A00);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.det-prog-count {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.det-sound-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.det-practice-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 20px 20px;
+}
+
+.det-practice-card {
+  width: 100%;
+  max-width: 720px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 6px 24px rgba(24, 32, 47, 0.05);
+  padding: 26px 32px;
+}
+
+.det-practice-card.wide {
+  max-width: 960px;
+}
+
+.det-practice-card .det-q-prompt {
+  text-align: center;
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.det-practice-card .det-q-hint {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+/* DUOLINGO BOTTOM FEEDBACK BAR */
+.det-feedback-bar {
+  border-top: 2px solid var(--border);
+  background: var(--surface);
+  padding: 16px 24px;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.det-feedback-bar.det-fb-correct {
+  background: #D7FFB8;
+  border-top-color: #A5ED6E;
+}
+
+.det-feedback-bar.det-fb-wrong {
+  background: #FFDFE0;
+  border-top-color: #F7B3B5;
+}
+
+.det-fb-inner {
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.det-fb-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.det-fb-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 800;
+  flex-shrink: 0;
+  background: #FFFFFF;
+}
+
+.det-fb-correct .det-fb-icon {
+  color: #1A8B2E;
+}
+
+.det-fb-wrong .det-fb-icon {
+  color: #D92D20;
+}
+
+.det-fb-title {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.det-fb-correct .det-fb-title { color: #166524; }
+.det-fb-wrong .det-fb-title { color: #912018; }
+
+.det-fb-detail {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-top: 3px;
+}
+
+.det-fb-correct .det-fb-detail { color: #1F7A33; }
+.det-fb-wrong .det-fb-detail { color: #B42318; }
+
+.det-fb-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* SESSION SUMMARY CARD */
+.det-summary-card {
+  width: 100%;
+  max-width: 620px;
+  margin: 24px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  box-shadow: var(--shadow-md);
+  padding: 32px;
+  text-align: center;
+}
+
+.det-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.det-summary-stat {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 10px;
+}
+
+.det-summary-stat-val {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.det-summary-stat-lbl {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+.subscore-num.untested {
+  color: var(--ink-light);
+  font-weight: 600;
 }
 
 @media print {

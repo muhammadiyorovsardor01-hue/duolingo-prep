@@ -52,6 +52,50 @@ function wireCharBoxes(container) {
   return boxes;
 }
 
+export function applyObjectiveReviewVisuals(container, item, result) {
+  if (!container || !item || !result) return;
+
+  if (item.type === 'read_select') {
+    const btns = Array.from(container.querySelectorAll('[data-rs]'));
+    btns.forEach((btn) => {
+      btn.disabled = true;
+      const btnIsReal = btn.dataset.rs === 'true';
+      if (btnIsReal === Boolean(item.isReal)) {
+        btn.classList.add('correct');
+      } else if (btn.classList.contains('selected') && !result.correct) {
+        btn.classList.add('wrong');
+      }
+    });
+  } else if (item.type === 'fill_blanks') {
+    const expected = String(item.missing || '').toLowerCase();
+    const boxes = Array.from(container.querySelectorAll('.char-box'));
+    boxes.forEach((box, idx) => {
+      box.readOnly = true;
+      const got = (box.value || '').toLowerCase();
+      if (got && got === expected[idx]) {
+        box.classList.add('box-correct');
+      } else {
+        box.classList.add('box-wrong');
+      }
+    });
+  } else if (item.type === 'read_complete') {
+    const details = result.details || [];
+    details.forEach((det, bIdx) => {
+      const expected = String(det.expected || '').toLowerCase();
+      const boxes = Array.from(container.querySelectorAll(`[data-rc-blank="${bIdx}"]`));
+      boxes.forEach((box, cIdx) => {
+        box.readOnly = true;
+        const got = (box.value || '').toLowerCase();
+        if (got && got === expected[cIdx]) {
+          box.classList.add('box-correct');
+        } else {
+          box.classList.add('box-wrong');
+        }
+      });
+    });
+  }
+}
+
 export function mountQuestionRenderer(container, item, options = {}) {
   const { settings = {}, onSubmitReady, onImmediateSubmit, lang = 'uz' } = options;
   let cleanupFns = [];
@@ -63,29 +107,47 @@ export function mountQuestionRenderer(container, item, options = {}) {
   // 1. READ AND SELECT
   if (type === 'read_select') {
     let selected = null;
+    let locked = false;
     container.innerHTML = `
-      <h3 class="det-q-prompt">${lang === 'uz' ? 'Bu haqiqiy inglizcha so‘zmi?' : 'Is this a real English word?'}</h3>
-      <p class="det-q-hint">${lang === 'uz' ? 'Tez va aniq javob bering.' : 'Select Yes if this is a real English word, or No if it is not.'}</p>
+      <h3 class="det-q-prompt">Is this a real English word?</h3>
+      <p class="det-q-hint">Select YES or NO (keys: Y / N)</p>
       <div class="word-showcase">
         <div class="word-showcase-text">${escapeHtml(item.word)}</div>
       </div>
       <div class="yes-no-row">
-        <button type="button" class="choice-tile" data-rs="true">✓ ${lang === 'uz' ? 'Ha (Real Word)' : 'Yes'}</button>
-        <button type="button" class="choice-tile" data-rs="false">✕ ${lang === 'uz' ? 'Yo‘q (Fake)' : 'No'}</button>
+        <button type="button" class="choice-tile" data-rs="true">✓ YES</button>
+        <button type="button" class="choice-tile" data-rs="false">✕ NO</button>
       </div>
     `;
     const btns = Array.from(container.querySelectorAll('[data-rs]'));
+    const choose = (val) => {
+      if (locked) return;
+      locked = true;
+      selected = val;
+      btns.forEach((b) => b.classList.toggle('selected', (b.dataset.rs === 'true') === val));
+      onSubmitReady?.(true);
+      if (onImmediateSubmit) {
+        onImmediateSubmit(selected);
+      }
+    };
     btns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        selected = btn.dataset.rs === 'true';
-        btns.forEach((b) => b.classList.remove('selected'));
-        btn.classList.add('selected');
-        onSubmitReady?.(true);
-        if (onImmediateSubmit) {
-          onImmediateSubmit(selected);
-        }
-      });
+      btn.addEventListener('click', () => choose(btn.dataset.rs === 'true'));
     });
+    const onKey = (e) => {
+      if (locked) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'y' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        choose(true);
+      } else if (k === 'n' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        choose(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    registerCleanup(() => document.removeEventListener('keydown', onKey));
     getAnswer = () => selected;
   }
 
@@ -97,8 +159,8 @@ export function mountQuestionRenderer(container, item, options = {}) {
     ).join('');
 
     container.innerHTML = `
-      <h3 class="det-q-prompt">${lang === 'uz' ? 'Tushirib qoldirilgan harflarni to‘ldiring' : 'Complete the sentence with the correct word'}</h3>
-      <p class="det-q-hint">${lang === 'uz' ? 'Har bir katakchaga bitta harf kiriting.' : 'Type one letter in each blank box to complete the word.'}</p>
+      <h3 class="det-q-prompt">Complete the sentence with the correct word</h3>
+      <p class="det-q-hint">Type one letter in each blank box.</p>
       <div class="ctest-passage">
         <span>${escapeHtml(item.before)}</span><span class="ctest-token"><span class="ctest-prefix">${escapeHtml(item.prefix)}</span><span class="ctest-boxes">${boxesHtml}</span></span><span>${escapeHtml(item.after)}</span>
       </div>
@@ -122,8 +184,8 @@ export function mountQuestionRenderer(container, item, options = {}) {
     }).join('');
 
     container.innerHTML = `
-      <h3 class="det-q-prompt">${lang === 'uz' ? 'Matndagi chala so‘zlarni to‘ldiring' : 'Type the missing letters to complete the text below'}</h3>
-      <p class="det-q-hint">${escapeHtml(item.title || '')} — ${lang === 'uz' ? 'Barcha kataklarni kontekstga qarab to‘ldiring.' : 'Use context clues to finish each incomplete word.'}</p>
+      <h3 class="det-q-prompt">Type the missing letters to complete the text below</h3>
+      <p class="det-q-hint">${escapeHtml(item.title || '')}</p>
       <div class="ctest-passage">${htmlParts}</div>
     `;
     wireCharBoxes(container);
@@ -143,21 +205,21 @@ export function mountQuestionRenderer(container, item, options = {}) {
     let playsLeft = 3;
     let isPlaying = false;
     container.innerHTML = `
-      <h3 class="det-q-prompt">${lang === 'uz' ? 'Eshitgan gapingizni aniq yozing' : 'Type the statement that you hear'}</h3>
-      <p class="det-q-hint">${lang === 'uz' ? 'Audioni ko‘pi bilan 3 marta eshitish mumkin.' : 'You can play the audio up to 3 times.'}</p>
+      <h3 class="det-q-prompt">Type the statement that you hear</h3>
+      <p class="det-q-hint">You can play the audio up to 3 times.</p>
       <div class="audio-box">
         <div style="display:flex;align-items:center;gap:14px;">
           <button type="button" id="lt-play-btn" class="audio-play-btn" title="Play audio">▶</button>
           <div>
-            <div style="font-weight:800;font-size:15px;">${lang === 'uz' ? 'Audioni ijro etish' : 'Play Sentence Audio'}</div>
-            <div id="lt-plays-left" style="font-size:13px;color:var(--ink-muted);">${lang === 'uz' ? 'Qolgan urinishlar:' : 'Replays remaining:'} <strong>${playsLeft}</strong></div>
+            <div style="font-weight:800;font-size:15px;">Play Sentence Audio</div>
+            <div id="lt-plays-left" style="font-size:13px;color:var(--ink-muted);">Replays remaining: <strong>${playsLeft}</strong></div>
           </div>
         </div>
         <div id="lt-eq" class="eq-bars">
           <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
         </div>
       </div>
-      <textarea id="lt-input" class="det-textarea" style="min-height:120px;" placeholder="${lang === 'uz' ? 'Eshitgan gapingizni shu yerga yozing...' : 'Type what you hear here...'}"></textarea>
+      <textarea id="lt-input" class="det-textarea" style="min-height:110px;" placeholder="Type what you hear here..."></textarea>
     `;
 
     const playBtn = container.querySelector('#lt-play-btn');
@@ -168,7 +230,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
     const playClip = () => {
       if (playsLeft <= 0 || isPlaying) return;
       playsLeft -= 1;
-      playsLabel.innerHTML = `${lang === 'uz' ? 'Qolgan urinishlar:' : 'Replays remaining:'} <strong>${playsLeft}</strong>`;
+      playsLabel.innerHTML = `Replays remaining: <strong>${playsLeft}</strong>`;
       if (playsLeft <= 0) playBtn.disabled = true;
       speakText(item.sentence, {
         rate: settings.ttsRate || 1.0,

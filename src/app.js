@@ -13,10 +13,17 @@ import {
 } from './storage.js';
 import { t } from './i18n.js';
 import { QUESTION_TYPES, getQuestionTypeMeta, pickQuestionFromBank } from './questions-bank.js';
-import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty } from './scoring.js';
+import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, pctToDetScore, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion } from './gemini.js';
 import { getEnglishVoices, speakText } from './speech.js';
-import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
+import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound } from './sounds.js';
+import {
+  mountQuestionRenderer,
+  applyObjectiveReviewVisuals,
+  gradeAnyItem,
+  renderFeedbackCard,
+  escapeHtml
+} from './renderers.js';
 import { launchMockExamFlow, renderScoreReport } from './exam-engine.js';
 
 const mainEl = document.getElementById('main-content');
@@ -75,6 +82,8 @@ function navigate(route) {
     practiceCleanup();
     practiceCleanup = null;
   }
+  topNavEl?.classList.remove('hidden');
+  mainEl?.classList.remove('arena-mode');
   currentRoute = route;
   syncChrome();
 
@@ -139,19 +148,25 @@ function renderDashboard() {
   const circ = 2 * Math.PI * radius;
   const dashOffset = circ - (ringPct / 100) * circ;
 
-  // Weakest core skill recommendation
-  const coreEntries = Object.entries(est.subscores || {});
-  const weakest = est.hasData
+  // Weakest core skill recommendation (prioritize untested skills first)
+  const coreEntries = Object.entries(est.subscores || {}).filter(([, v]) => v != null);
+  const weakest = coreEntries.length > 0
     ? [...coreEntries].sort((a, b) => a[1] - b[1])[0]
-    : ['writing', 0];
+    : null;
+  const untestedList = (est.untestedSkills || []).map((s) => s.toUpperCase()).join(', ');
 
-  const renderBar = (label, val, color) => `
-    <div class="subscore-row">
-      <div class="subscore-name">${escapeHtml(label)}</div>
-      <div class="progress-track"><div class="progress-fill ${color}" style="width:${val ? Math.round(((val - 10) / 150) * 100) : 0}%"></div></div>
-      <div class="subscore-num">${val || '--'}</div>
-    </div>
-  `;
+  const renderBar = (label, val, color) => {
+    const hasVal = val != null && val > 0;
+    const widthPct = hasVal ? Math.round(((val - 10) / 150) * 100) : 0;
+    const displayVal = hasVal ? val : (lang === 'uz' ? '—' : '—');
+    return `
+      <div class="subscore-row">
+        <div class="subscore-name">${escapeHtml(label)}</div>
+        <div class="progress-track"><div class="progress-fill ${color}" style="width:${widthPct}%"></div></div>
+        <div class="subscore-num ${hasVal ? '' : 'untested'}">${displayVal}</div>
+      </div>
+    `;
+  };
 
   mainEl.innerHTML = `
     <div class="page-header">
@@ -194,6 +209,7 @@ function renderDashboard() {
           <h2>${est.hasData ? `IELTS ≈ ${scoreToIelts(est.overall)} · CEFR ${scoreToCefr(est.overall)}` : escapeHtml(t(lang, 'noScoreYet'))}</h2>
           <div style="font-size:13px;color:var(--ink-muted);">
             ${escapeHtml(t(lang, 'targetScore'))}: <strong>${state.settings.targetScore}</strong> / 160
+            ${est.isPartial ? ` · <span class="tag tag-warn">${lang === 'uz' ? `Qisman (${est.testedSkills.length}/4 ko‘nikma)` : `Partial (${est.testedSkills.length}/4 skills)`}</span>` : ''}
           </div>
           <div class="stat-row">
             <div class="stat-chip">🔥 <strong>${streak}</strong> ${escapeHtml(t(lang, 'streakDays'))}</div>
@@ -216,13 +232,17 @@ function renderDashboard() {
           <div class="kpi-box" style="grid-column:1 / -1;background:var(--accent-soft);">
             <div class="kpi-label" style="color:var(--accent-hover);">${escapeHtml(t(lang, 'weakestTipTitle'))}</div>
             <div style="font-weight:700;font-size:14px;margin-top:4px;">
-              ${est.hasData
+              ${est.isPartial
                 ? (lang === 'uz'
-                  ? `Eng past ko‘rsatkich: ${weakest[0].toUpperCase()} (${weakest[1]}). Mashqlar bo‘limida shu ko‘nikmani kuchaytiring.`
-                  : `Lowest current skill: ${weakest[0].toUpperCase()} (${weakest[1]}). Focus your next drills here.`)
-                : (lang === 'uz'
-                  ? 'Boshlash uchun Tezkor Mock topshiring yoki Mashqlar bo‘limidan 5 ta savol yeching!'
-                  : 'Start with an Express Mock or solve 5 drills in Practice to calibrate your baseline!')}
+                  ? `Hali yechilmagan ko‘nikmalar: ${untestedList}. To‘liq ball chiqishi uchun ularni ham mashq qiling.`
+                  : `Untested skills: ${untestedList}. Complete drills in those areas for a full score estimate.`)
+                : est.hasData && weakest
+                  ? (lang === 'uz'
+                    ? `Eng past ko‘rsatkich: ${weakest[0].toUpperCase()} (${weakest[1]}). Mashqlar bo‘limida shu ko‘nikmani kuchaytiring.`
+                    : `Lowest current skill: ${weakest[0].toUpperCase()} (${weakest[1]}). Focus your next drills here.`)
+                  : (lang === 'uz'
+                    ? 'Boshlash uchun Tezkor Mock topshiring yoki Mashqlar bo‘limidan 1 ta raund yeching!'
+                    : 'Start with an Express Mock or finish 1 Practice round to calibrate your baseline!')}
             </div>
           </div>
         </div>
@@ -406,8 +426,8 @@ function renderPracticeHub() {
             </div>
             <div>
               <div class="practice-meta">
-                <span>⏱ ${qt.prepSec ? `${qt.prepSec}s + ` : ''}${durLabel}</span>
-                <span>${stats ? `${stats.attempts} runs · avg ${stats.avgScore}` : 'Not practiced'}</span>
+                <span>⏱ ${qt.prepSec ? `${qt.prepSec}s + ` : ''}${durLabel} · ${qt.sessionLength || 1} ${lang === 'uz' ? 'savol' : ((qt.sessionLength || 1) === 1 ? 'task' : 'items')}</span>
+                <span>${stats ? `${stats.attempts} runs · avg ${stats.avgScore}` : (lang === 'uz' ? 'Yechilmagan' : 'Not practiced')}</span>
               </div>
               <div class="practice-actions" style="margin-top:12px;">
                 <button type="button" class="btn btn-primary btn-sm" data-run-bank="${qt.id}">${escapeHtml(t(lang, 'btnPracticeBank'))}</button>
@@ -432,7 +452,7 @@ function renderPracticeHub() {
   });
 
   mainEl.querySelectorAll('[data-run-bank]').forEach((btn) => {
-    btn.addEventListener('click', () => startSinglePractice(btn.dataset.runBank, false));
+    btn.addEventListener('click', () => startPracticeSession(btn.dataset.runBank, false));
   });
 
   mainEl.querySelectorAll('[data-run-ai]').forEach((btn) => {
@@ -442,167 +462,449 @@ function renderPracticeHub() {
         navigate('settings');
         return;
       }
-      startSinglePractice(btn.dataset.runAi, true);
+      startPracticeSession(btn.dataset.runAi, true);
     });
   });
 }
 
-async function startSinglePractice(typeId, useAi, diffOverride = null, usedIds = new Set()) {
-  if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
-  const state = loadState();
-  const settings = state.settings;
-  const lang = settings.uiLang || 'uz';
-  const meta = getQuestionTypeMeta(typeId);
-  const diff = diffOverride || (practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty));
-
-  let item = null;
-  if (useAi && settings.apiKey) {
-    mainEl.innerHTML = `
-      <div class="det-card" style="margin:24px auto;text-align:center;">
-        <div style="font-size:34px;margin-bottom:10px;">✨</div>
-        <h3 style="margin:0 0 6px;">${escapeHtml(t(lang, 'generatingAi'))}</h3>
-        <p class="page-subtitle">${escapeHtml(meta.name)} · Level ${diff}/5</p>
-      </div>
-    `;
-    try {
-      item = await generateQuestion({ apiKey: settings.apiKey, model: settings.model, type: typeId, difficulty: diff });
-    } catch (err) {
-      showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
-      item = pickQuestionFromBank(typeId, diff, usedIds);
-    }
-  } else {
-    item = pickQuestionFromBank(typeId, diff, usedIds);
+function getObjectiveFeedbackDetail(item, result) {
+  if (item.type === 'read_select') {
+    return item.isReal
+      ? `"${item.word}" is a real English word.`
+      : `"${item.word}" is NOT a real English word.`;
   }
+  if (item.type === 'fill_blanks') {
+    return `Correct word: ${item.fullWord || `${item.prefix}${item.missing}`}`;
+  }
+  if (item.type === 'read_complete') {
+    return `${result.correctCount}/${result.totalBlanks} blanks exact (${result.pctScore}%)`;
+  }
+  if (item.type === 'listen_type') {
+    return `Answer: ${item.sentence}`;
+  }
+  if (item.type === 'interactive_reading') {
+    return `${result.passed}/${result.totalChecks} checks correct (${result.pctScore}%)`;
+  }
+  return result.expected || '';
+}
 
-  usedIds.add(item.id);
-  const startedAt = Date.now();
-  const totalSec = (item.prepSec || meta.prepSec || 0) + (meta.durationSec || 60);
-  let leftSec = totalSec;
-  let timerId = null;
-  let submitted = false;
+function startPracticeSession(typeId, useAi) {
+  if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
+
+  const meta = getQuestionTypeMeta(typeId);
+  const totalItems = meta.sessionLength || 1;
+  const sessionStartedAt = Date.now();
+  const usedIds = new Set();
+  const sessionResults = [];
+  const isObjective = ['read_select', 'fill_blanks', 'read_complete', 'listen_type', 'interactive_reading'].includes(typeId);
+
+  let currentIndex = 0;
+  let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let soundOn = loadState().settings.soundEnabled !== false;
+  let aborted = false;
+  let itemTimerId = null;
+  let autoAdvanceId = null;
+  let activeRenderer = null;
+  let continueKeyListener = null;
+  let prefetchedNext = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
 
   mainEl.innerHTML = `
-    <div class="det-card ${typeId === 'interactive_reading' ? 'wide' : ''}" style="margin:0 auto;">
-      <div class="det-q-header">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <button type="button" id="pr-back" class="btn btn-secondary btn-sm">← ${escapeHtml(t(lang, 'finishAndBack'))}</button>
-          <span class="tag">${meta.icon} ${escapeHtml(meta.name)}</span>
-          <span class="tag">Level ${diff}/5</span>
-          ${item.isAiGenerated ? '<span class="tag tag-ai">AI Generated</span>' : ''}
-        </div>
-        <div id="pr-timer" class="timer-pill">⏱ ${leftSec}s</div>
+    <div class="det-practice-shell">
+      <div class="det-practice-topbar">
+        <button type="button" id="dp-exit" class="det-exit-btn" title="Exit Practice">✕</button>
+        <div class="det-prog-track"><div id="dp-prog-fill" class="det-prog-fill" style="width:0%"></div></div>
+        <span id="dp-prog-count" class="det-prog-count">1 / ${totalItems}</span>
+        <span id="dp-level" class="tag">Level ${currentDiff}/5</span>
+        <button type="button" id="dp-sound-btn" class="det-sound-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+        <div id="dp-timer" class="timer-pill">⏱ 00:00</div>
       </div>
-
-      <div id="pr-mount"></div>
-
-      <div id="pr-footer" class="det-footer">
-        <span style="font-size:12.5px;color:var(--ink-muted);">${meta.skills.map((s) => s.toUpperCase()).join(' · ')}</span>
-        <button type="button" id="pr-submit" class="btn btn-primary">${escapeHtml(t(lang, 'submitAnswer'))}</button>
+      <div class="det-practice-stage">
+        <div id="dp-card" class="det-practice-card ${typeId === 'interactive_reading' ? 'wide' : ''}"></div>
       </div>
-      <div id="pr-feedback"></div>
+      <div id="dp-bottom-bar" class="det-feedback-bar"></div>
     </div>
   `;
 
-  const timerEl = mainEl.querySelector('#pr-timer');
-  const updateTimer = () => {
-    const m = Math.floor(Math.max(0, leftSec) / 60);
-    const s = Math.max(0, leftSec) % 60;
-    timerEl.textContent = `⏱ ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    timerEl.classList.toggle('warn', leftSec <= totalSec * 0.25 && leftSec > 10);
-    timerEl.classList.toggle('danger', leftSec <= 10);
-  };
-  updateTimer();
-
-  const renderer = mountQuestionRenderer(mainEl.querySelector('#pr-mount'), item, {
-    settings,
-    lang,
-    onImmediateSubmit: typeId === 'read_select' ? (val) => handleSubmit(val) : undefined
-  });
-
-  const stopTimerAndRec = () => {
-    if (timerId) { clearInterval(timerId); timerId = null; }
+  const clearItemTimers = () => {
+    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (autoAdvanceId) { clearTimeout(autoAdvanceId); autoAdvanceId = null; }
+    if (continueKeyListener) {
+      document.removeEventListener('keydown', continueKeyListener);
+      continueKeyListener = null;
+    }
   };
 
   practiceCleanup = () => {
-    stopTimerAndRec();
-    renderer.cleanup();
+    aborted = true;
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
   };
 
-  timerId = setInterval(() => {
-    leftSec -= 1;
-    updateTimer();
-    if (leftSec <= 0) {
-      handleSubmit();
+  mainEl.querySelector('#dp-exit').addEventListener('click', () => {
+    navigate('practice');
+  });
+
+  const soundBtn = mainEl.querySelector('#dp-sound-btn');
+  soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? '🔊' : '🔇';
+    updateSettings({ soundEnabled: soundOn });
+  });
+
+  const prefetchAiItem = (idx, diff) => {
+    const s = loadState().settings;
+    if (!useAi || !s.apiKey || idx >= totalItems) {
+      prefetchedNext = null;
+      return;
     }
-  }, 1000);
+    prefetchedNext = {
+      index: idx,
+      promise: generateQuestion({ apiKey: s.apiKey, model: s.model, type: typeId, difficulty: diff }).catch(() => null)
+    };
+  };
 
-  async function handleSubmit(overrideAns = undefined) {
-    if (submitted) return;
-    submitted = true;
-    stopTimerAndRec();
+  const renderSessionSummary = () => {
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+    topNavEl?.classList.remove('hidden');
+    mainEl?.classList.remove('arena-mode');
+    practiceCleanup = null;
 
-    const submitBtn = mainEl.querySelector('#pr-submit');
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = '...';
-    }
+    const lang = loadState().settings.uiLang || 'uz';
+    const totalSec = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+    const avgPct = sessionResults.length
+      ? Math.round(sessionResults.reduce((s, r) => s + r.result.pctScore, 0) / sessionResults.length)
+      : 0;
+    const avgDiff = sessionResults.length
+      ? sessionResults.reduce((s, r) => s + (r.item.difficulty || 3), 0) / sessionResults.length
+      : currentDiff;
+    const correctCount = sessionResults.filter((r) => r.result.correct).length;
+    const sessionDetScore = isObjective
+      ? pctToDetScore(avgPct, avgDiff)
+      : roundDetScore(
+          sessionResults.length
+            ? sessionResults.reduce((s, r) => s + r.result.detScore, 0) / sessionResults.length
+            : 10
+        );
 
-    const answer = overrideAns !== undefined ? overrideAns : await renderer.getAnswer();
-    renderer.cleanup();
-
-    const fbSlot = mainEl.querySelector('#pr-feedback');
-    fbSlot.innerHTML = `<div style="padding:18px;text-align:center;color:var(--ink-muted);font-weight:700;">⏳ ${lang === 'uz' ? 'Baholanmoqda...' : 'Evaluating response...'}</div>`;
-
-    const result = await gradeAnyItem({ item, answer, settings });
-    const elapsedSec = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-    recordPracticeAttempt({ type: typeId, detScore: result.detScore, pctScore: result.pctScore, timeSec: elapsedSec });
-    syncChrome();
-
-    if (!result.correct && ['read_select', 'fill_blanks', 'read_complete', 'listen_type'].includes(typeId)) {
-      addMistake({
+    if (sessionResults.length > 0) {
+      recordPracticeAttempt({
         type: typeId,
-        prompt: item.word || item.sentence || item.title || meta.name,
-        userAnswer: result.userSummary,
-        correctAnswer: result.expected,
-        note: 'Skill Practice'
+        detScore: sessionDetScore,
+        pctScore: avgPct,
+        timeSec: totalSec
       });
       syncChrome();
     }
 
-    fbSlot.innerHTML = '';
-    fbSlot.appendChild(renderFeedbackCard({
-      item,
-      result,
-      lang,
-      onSaveMistake: () => {
-        const firstFix = result.aiFeedback?.corrections?.[0];
+    playCompleteSound(soundOn);
+
+    const missedItems = sessionResults.filter((r) => !r.result.correct);
+    const minPart = Math.floor(totalSec / 60);
+    const secPart = totalSec % 60;
+    const timeLabel = minPart > 0 ? `${minPart}m ${secPart}s` : `${secPart}s`;
+
+    mainEl.innerHTML = `
+      <div class="det-summary-card">
+        <div style="font-size:44px;margin-bottom:8px;">🏆</div>
+        <span class="tag tag-ai">${meta.icon} ${escapeHtml(meta.name)}</span>
+        <h2 style="margin:10px 0 4px;font-size:26px;font-weight:800;">
+          ${lang === 'uz' ? 'Mashq yakunlandi!' : 'Practice Round Complete!'}
+        </h2>
+        <p class="page-subtitle" style="margin:0;">
+          ${lang === 'uz' ? 'Natijangiz saqlandi va umumiy ko‘rsatkichlarga qo‘shildi.' : 'Your session score has been saved to your Dashboard.'}
+        </p>
+
+        <div class="det-summary-grid">
+          <div class="det-summary-stat" style="background:var(--accent-soft);border-color:#FFC999;">
+            <div class="det-summary-stat-val" style="color:var(--accent-hover);">${sessionDetScore}</div>
+            <div class="det-summary-stat-lbl">DET Band / 160</div>
+          </div>
+          <div class="det-summary-stat">
+            <div class="det-summary-stat-val">${isObjective ? `${correctCount}/${sessionResults.length}` : `${avgPct}%`}</div>
+            <div class="det-summary-stat-lbl">${isObjective ? `${avgPct}% ${lang === 'uz' ? 'aniqlik' : 'accuracy'}` : (lang === 'uz' ? 'Natija' : 'Score')}</div>
+          </div>
+          <div class="det-summary-stat">
+            <div class="det-summary-stat-val">${timeLabel}</div>
+            <div class="det-summary-stat-lbl">${lang === 'uz' ? 'Sarflangan vaqt' : 'Time'}</div>
+          </div>
+        </div>
+
+        ${missedItems.length > 0 ? `
+          <div style="text-align:left;background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:20px;">
+            <div style="font-size:13px;font-weight:800;margin-bottom:8px;color:var(--ink-muted);">
+              ${lang === 'uz' ? `Xato qilinganlar (${missedItems.length}) — Xatolar daftariga saqlandi:` : `Missed items (${missedItems.length}) — Saved to Mistake Bank:`}
+            </div>
+            ${missedItems.slice(0, 6).map((m) => `
+              <div style="font-size:13px;padding:5px 0;border-bottom:1px solid var(--border);">
+                <strong>${escapeHtml(m.item.word || m.item.sentence || m.item.title || meta.name)}</strong>
+                <span style="color:var(--ink-muted);"> → ${escapeHtml(m.result.expected)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="banner banner-success" style="justify-content:center;margin-bottom:20px;">
+            <strong>✨ ${lang === 'uz' ? 'Ajoyib! Barcha savollarga bexato javob berdingiz.' : 'Perfect round! Zero mistakes.'}</strong>
+          </div>
+        `}
+
+        <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;">
+          <button type="button" id="sum-back" class="btn btn-secondary">${escapeHtml(t(lang, 'finishAndBack'))}</button>
+          <button type="button" id="sum-again" class="btn btn-primary">🔄 ${lang === 'uz' ? 'Yana 1 raund' : 'Play Again'}</button>
+        </div>
+      </div>
+    `;
+
+    mainEl.querySelector('#sum-back').addEventListener('click', () => navigate('practice'));
+    mainEl.querySelector('#sum-again').addEventListener('click', () => startPracticeSession(typeId, useAi));
+  };
+
+  const loadItem = async () => {
+    if (aborted) return;
+    clearItemTimers();
+
+    if (currentIndex >= totalItems) {
+      renderSessionSummary();
+      return;
+    }
+
+    const settings = loadState().settings;
+    const lang = settings.uiLang || 'uz';
+    const cardEl = mainEl.querySelector('#dp-card');
+    const bottomBar = mainEl.querySelector('#dp-bottom-bar');
+    const progFill = mainEl.querySelector('#dp-prog-fill');
+    const progCount = mainEl.querySelector('#dp-prog-count');
+    const levelTag = mainEl.querySelector('#dp-level');
+    const timerEl = mainEl.querySelector('#dp-timer');
+
+    if (progFill) progFill.style.width = `${Math.round((currentIndex / totalItems) * 100)}%`;
+    if (progCount) progCount.textContent = `${currentIndex + 1} / ${totalItems}`;
+    if (levelTag) levelTag.textContent = `Level ${currentDiff}/5`;
+
+    let item = null;
+    if (useAi && settings.apiKey) {
+      if (prefetchedNext && prefetchedNext.index === currentIndex) {
+        item = await prefetchedNext.promise;
+      }
+      if (!item) {
+        if (cardEl) {
+          cardEl.innerHTML = `
+            <div style="text-align:center;padding:32px 12px;">
+              <div style="font-size:32px;margin-bottom:8px;">✨</div>
+              <div style="font-weight:800;">${escapeHtml(t(lang, 'generatingAi'))}</div>
+            </div>
+          `;
+        }
+        try {
+          item = await generateQuestion({ apiKey: settings.apiKey, model: settings.model, type: typeId, difficulty: currentDiff });
+        } catch (err) {
+          showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+          item = pickQuestionFromBank(typeId, currentDiff, usedIds);
+        }
+      }
+    } else {
+      item = pickQuestionFromBank(typeId, currentDiff, usedIds);
+    }
+
+    if (aborted) return;
+    usedIds.add(item.id);
+    prefetchAiItem(currentIndex + 1, currentDiff);
+
+    cardEl.innerHTML = `<div id="dp-mount"></div><div id="dp-ai-fb"></div>`;
+    const mountEl = cardEl.querySelector('#dp-mount');
+
+    const totalSec = (item.prepSec || meta.prepSec || 0) + (meta.durationSec || 60);
+    let leftSec = totalSec;
+    let submitted = false;
+
+    const updateTimer = () => {
+      if (!timerEl) return;
+      const m = Math.floor(Math.max(0, leftSec) / 60);
+      const s = Math.max(0, leftSec) % 60;
+      timerEl.textContent = `⏱ ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      timerEl.classList.toggle('warn', leftSec <= totalSec * 0.25 && leftSec > 10);
+      timerEl.classList.toggle('danger', leftSec <= 10);
+    };
+    updateTimer();
+
+    bottomBar.className = 'det-feedback-bar';
+    if (typeId === 'read_select') {
+      bottomBar.innerHTML = `
+        <div class="det-fb-inner">
+          <div style="font-size:13px;font-weight:700;color:var(--ink-muted);">⌨️ Y = YES · N = NO</div>
+          <div class="det-fb-actions">
+            <button type="button" id="dp-submit" class="btn btn-secondary btn-sm">${lang === 'uz' ? 'O‘tkazib yuborish' : 'Skip'}</button>
+          </div>
+        </div>
+      `;
+    } else {
+      bottomBar.innerHTML = `
+        <div class="det-fb-inner">
+          <div style="font-size:13px;font-weight:700;color:var(--ink-muted);">${meta.icon} ${escapeHtml(meta.name)}</div>
+          <div class="det-fb-actions">
+            <button type="button" id="dp-submit" class="btn btn-primary">${escapeHtml(t(lang, 'submitAnswer'))}</button>
+          </div>
+        </div>
+      `;
+    }
+
+    const advanceToNext = () => {
+      if (aborted) return;
+      clearItemTimers();
+      currentIndex += 1;
+      loadItem();
+    };
+
+    const handleSubmit = async (overrideAns = undefined, timedOut = false) => {
+      if (submitted || aborted) return;
+      submitted = true;
+      clearItemTimers();
+
+      const submitBtn = bottomBar.querySelector('#dp-submit');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '...';
+      }
+
+      const answer = overrideAns !== undefined ? overrideAns : await activeRenderer.getAnswer();
+      activeRenderer.cleanup();
+
+      if (!isObjective) {
+        bottomBar.innerHTML = `
+          <div class="det-fb-inner">
+            <div style="font-weight:700;color:var(--ink-muted);">⏳ ${lang === 'uz' ? 'Baholanmoqda...' : 'Evaluating response...'}</div>
+          </div>
+        `;
+      }
+
+      const result = await gradeAnyItem({ item, answer, settings });
+      if (aborted) return;
+
+      sessionResults.push({ item, result });
+
+      if (!result.correct && ['read_select', 'fill_blanks', 'read_complete', 'listen_type'].includes(typeId)) {
         addMistake({
           type: typeId,
-          prompt: item.word || item.sentence || item.prompt || item.title || meta.name,
-          userAnswer: firstFix?.original || result.userSummary,
-          correctAnswer: firstFix?.corrected || result.expected,
-          note: firstFix?.explanation || result.aiFeedback?.summary || ''
+          prompt: item.word || item.sentence || item.title || meta.name,
+          userAnswer: result.userSummary,
+          correctAnswer: result.expected,
+          note: 'Skill Practice'
         });
         syncChrome();
       }
-    }));
 
-    const nextDiff = practiceDifficulty === 'adaptive' ? nextAdaptiveDifficulty(diff, result.pctScore) : diff;
-    const footer = mainEl.querySelector('#pr-footer');
-    footer.innerHTML = `
-      <button type="button" id="pr-back2" class="btn btn-secondary">${escapeHtml(t(lang, 'finishAndBack'))}</button>
-      <div style="display:flex;gap:10px;">
-        <button type="button" id="pr-next-bank" class="btn btn-primary">${escapeHtml(t(lang, 'nextQuestion'))} →</button>
-        ${meta.aiGeneratable && settings.apiKey ? `<button type="button" id="pr-next-ai" class="btn btn-soft">✨ ${escapeHtml(t(lang, 'btnPracticeAi'))}</button>` : ''}
-      </div>
-    `;
-    footer.querySelector('#pr-back2').addEventListener('click', () => navigate('practice'));
-    footer.querySelector('#pr-next-bank').addEventListener('click', () => startSinglePractice(typeId, false, nextDiff, usedIds));
-    footer.querySelector('#pr-next-ai')?.addEventListener('click', () => startSinglePractice(typeId, true, nextDiff, usedIds));
-  }
+      if (practiceDifficulty === 'adaptive') {
+        currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+      }
 
-  mainEl.querySelector('#pr-submit').addEventListener('click', () => handleSubmit());
-  mainEl.querySelector('#pr-back').addEventListener('click', () => navigate('practice'));
+      const isGood = isObjective ? result.correct : result.detScore >= 105;
+      if (timedOut && answer == null) {
+        playTimeoutSound(soundOn);
+      } else if (isGood) {
+        playCorrectSound(soundOn);
+      } else {
+        playWrongSound(soundOn);
+      }
+
+      if (isObjective) {
+        applyObjectiveReviewVisuals(mountEl, item, result);
+        const detail = getObjectiveFeedbackDetail(item, result);
+        const isLast = currentIndex + 1 >= totalItems;
+        const btnLabel = isLast ? (lang === 'uz' ? 'Natijani ko‘rish →' : 'See Results →') : (lang === 'uz' ? 'Davom etish →' : 'Continue →');
+
+        bottomBar.className = `det-feedback-bar ${result.correct ? 'det-fb-correct' : 'det-fb-wrong'}`;
+        bottomBar.innerHTML = `
+          <div class="det-fb-inner">
+            <div class="det-fb-status">
+              <div class="det-fb-icon">${result.correct ? '✓' : '✕'}</div>
+              <div>
+                <div class="det-fb-title">${result.correct ? (lang === 'uz' ? 'To‘g‘ri!' : 'Correct!') : (timedOut && answer == null ? (lang === 'uz' ? 'Vaqt tugadi' : 'Time is up') : (lang === 'uz' ? 'Xato' : 'Incorrect'))}</div>
+                <div class="det-fb-detail">${escapeHtml(detail)}</div>
+              </div>
+            </div>
+            <div class="det-fb-actions">
+              <button type="button" id="dp-continue" class="btn ${result.correct ? 'btn-success' : 'btn-danger'}">${escapeHtml(btnLabel)}</button>
+            </div>
+          </div>
+        `;
+        bottomBar.querySelector('#dp-continue').addEventListener('click', advanceToNext);
+
+        if (typeId === 'read_select') {
+          autoAdvanceId = setTimeout(advanceToNext, 950);
+        }
+
+        continueKeyListener = (e) => {
+          const tag = e.target?.tagName;
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            advanceToNext();
+          }
+        };
+        document.addEventListener('keydown', continueKeyListener);
+      } else {
+        const aiFbSlot = cardEl.querySelector('#dp-ai-fb');
+        aiFbSlot.innerHTML = '';
+        aiFbSlot.appendChild(renderFeedbackCard({
+          item,
+          result,
+          lang,
+          onSaveMistake: () => {
+            const firstFix = result.aiFeedback?.corrections?.[0];
+            addMistake({
+              type: typeId,
+              prompt: item.word || item.sentence || item.prompt || item.title || meta.name,
+              userAnswer: firstFix?.original || result.userSummary,
+              correctAnswer: firstFix?.corrected || result.expected,
+              note: firstFix?.explanation || result.aiFeedback?.summary || ''
+            });
+            syncChrome();
+          }
+        }));
+
+        const isLast = currentIndex + 1 >= totalItems;
+        const btnLabel = isLast ? (lang === 'uz' ? 'Natijani ko‘rish →' : 'See Results →') : (lang === 'uz' ? 'Keyingi savol →' : 'Continue →');
+        bottomBar.className = `det-feedback-bar ${isGood ? 'det-fb-correct' : ''}`;
+        bottomBar.innerHTML = `
+          <div class="det-fb-inner">
+            <div class="det-fb-status">
+              <div class="det-fb-icon">${isGood ? '✓' : '★'}</div>
+              <div>
+                <div class="det-fb-title">${lang === 'uz' ? `Ball: ${result.detScore} / 160` : `Score: ${result.detScore} / 160`}</div>
+              </div>
+            </div>
+            <div class="det-fb-actions">
+              <button type="button" id="dp-continue" class="btn btn-primary">${escapeHtml(btnLabel)}</button>
+            </div>
+          </div>
+        `;
+        bottomBar.querySelector('#dp-continue').addEventListener('click', advanceToNext);
+      }
+    };
+
+    activeRenderer = mountQuestionRenderer(mountEl, item, {
+      settings,
+      lang,
+      onImmediateSubmit: typeId === 'read_select' ? (val) => handleSubmit(val, false) : undefined
+    });
+
+    bottomBar.querySelector('#dp-submit')?.addEventListener('click', () => handleSubmit());
+
+    itemTimerId = setInterval(() => {
+      leftSec -= 1;
+      updateTimer();
+      if (leftSec <= 0) {
+        handleSubmit(undefined, true);
+      }
+    }, 1000);
+  };
+
+  loadItem();
 }
 
 // 4. MISTAKE BANK
@@ -819,6 +1121,10 @@ function renderSettingsView() {
         </div>
 
         <div class="toggle-row">
+          <span style="font-weight:700;font-size:13.5px;">${lang === 'uz' ? 'Tovushli effektlar (To‘g‘ri / Xato ovozlari)' : 'Sound Effects (Correct / Wrong chimes)'}</span>
+          <input type="checkbox" id="set-sound" ${s.soundEnabled !== false ? 'checked' : ''} />
+        </div>
+        <div class="toggle-row">
           <span style="font-weight:700;font-size:13.5px;">${escapeHtml(t(lang, 'enableProctorMock'))}</span>
           <input type="checkbox" id="set-proctor" ${s.enableProctor ? 'checked' : ''} />
         </div>
@@ -892,6 +1198,7 @@ function renderSettingsView() {
       targetScore: Number(mainEl.querySelector('#set-target').value),
       ttsVoice: mainEl.querySelector('#set-voice').value,
       ttsRate: Number(mainEl.querySelector('#set-rate').value),
+      soundEnabled: mainEl.querySelector('#set-sound').checked,
       enableProctor: mainEl.querySelector('#set-proctor').checked,
       enableWebcam: mainEl.querySelector('#set-webcam').checked
     });

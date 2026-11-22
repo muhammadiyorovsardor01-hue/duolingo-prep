@@ -1,3 +1,5 @@
+import { SKILL_MAP, roundDetScore } from './scoring.js';
+
 const STORAGE_KEY = 'det_prep_v1';
 
 const LEGACY_GEMINI_MODELS = new Set(['gemini-2.5-flash', 'gemini-2.5-flash-lite']);
@@ -18,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   enableWebcam: false,
   enableProctor: true,
   useAiGeneration: true,
+  soundEnabled: true,
   ttsRate: 1.0,
   ttsVoice: ''
 };
@@ -178,34 +181,73 @@ export function getStreak(state = loadState()) {
 }
 
 export function getEstimatedScores(state = loadState()) {
-  if (state.examHistory.length > 0) {
+  const buckets = {
+    reading: [],
+    writing: [],
+    listening: [],
+    speaking: []
+  };
+
+  const hasExam = Array.isArray(state.examHistory) && state.examHistory.length > 0;
+  if (hasExam) {
     const latest = state.examHistory[0];
-    return {
-      hasData: true,
-      source: 'exam',
-      overall: latest.overall,
-      subscores: latest.subscores,
-      integrated: latest.integrated
-    };
+    for (const sk of ['reading', 'writing', 'listening', 'speaking']) {
+      const val = latest?.subscores?.[sk];
+      if (Number.isFinite(val) && val > 0) {
+        buckets[sk].push(val);
+      }
+    }
   }
-  const entries = Object.values(state.practiceStats);
-  if (entries.length > 0) {
-    const avg = Math.round(entries.reduce((s, e) => s + e.avgScore, 0) / entries.length / 5) * 5;
-    const clamped = Math.max(10, Math.min(160, avg));
-    return {
-      hasData: true,
-      source: 'practice',
-      overall: clamped,
-      subscores: { reading: clamped, writing: clamped, listening: clamped, speaking: clamped },
-      integrated: { literacy: clamped, comprehension: clamped, conversation: clamped, production: clamped }
-    };
+
+  for (const [typeId, stat] of Object.entries(state.practiceStats || {})) {
+    if (!stat || !stat.attempts || !Number.isFinite(stat.avgScore)) continue;
+    const skills = SKILL_MAP[typeId] || [];
+    for (const sk of skills) {
+      if (buckets[sk]) {
+        buckets[sk].push(stat.avgScore);
+      }
+    }
   }
+
+  const subscores = {};
+  for (const sk of ['reading', 'writing', 'listening', 'speaking']) {
+    const arr = buckets[sk];
+    subscores[sk] = arr.length > 0
+      ? roundDetScore(arr.reduce((a, b) => a + b, 0) / arr.length)
+      : null;
+  }
+
+  const integrated = {
+    literacy: subscores.reading != null && subscores.writing != null
+      ? roundDetScore((subscores.reading + subscores.writing) / 2)
+      : null,
+    comprehension: subscores.reading != null && subscores.listening != null
+      ? roundDetScore((subscores.reading + subscores.listening) / 2)
+      : null,
+    conversation: subscores.listening != null && subscores.speaking != null
+      ? roundDetScore((subscores.listening + subscores.speaking) / 2)
+      : null,
+    production: subscores.writing != null && subscores.speaking != null
+      ? roundDetScore((subscores.writing + subscores.speaking) / 2)
+      : null
+  };
+
+  const testedSkills = ['reading', 'writing', 'listening', 'speaking'].filter((sk) => subscores[sk] != null);
+  const untestedSkills = ['reading', 'writing', 'listening', 'speaking'].filter((sk) => subscores[sk] == null);
+
+  const overall = testedSkills.length > 0
+    ? roundDetScore(testedSkills.reduce((sum, sk) => sum + subscores[sk], 0) / testedSkills.length)
+    : null;
+
   return {
-    hasData: false,
-    source: 'none',
-    overall: null,
-    subscores: { reading: 0, writing: 0, listening: 0, speaking: 0 },
-    integrated: { literacy: 0, comprehension: 0, conversation: 0, production: 0 }
+    hasData: testedSkills.length > 0,
+    isPartial: testedSkills.length > 0 && testedSkills.length < 4,
+    source: hasExam ? 'exam' : (testedSkills.length > 0 ? 'practice' : 'none'),
+    overall,
+    testedSkills,
+    untestedSkills,
+    subscores,
+    integrated
   };
 }
 
