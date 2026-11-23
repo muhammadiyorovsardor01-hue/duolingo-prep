@@ -21,7 +21,7 @@ export const QUESTION_TYPES = [
   {
     id: 'fill_blanks',
     name: 'Fill in the Blanks',
-    skills: ['reading', 'writing'],
+    skills: ['reading'],
     durationSec: 20,
     sessionLength: 6,
     descUz: 'Gapdagi tushirib qoldirilgan so‘zning qolgan harflarini 20 soniyada to‘ldiring.',
@@ -32,7 +32,7 @@ export const QUESTION_TYPES = [
   {
     id: 'read_complete',
     name: 'Read and Complete',
-    skills: ['reading', 'writing'],
+    skills: ['reading'],
     durationSec: 180,
     sessionLength: 2,
     descUz: 'Akademik matndagi chala qoldirilgan so‘zlarning harflarini 3 daqiqada tiklang.',
@@ -43,7 +43,7 @@ export const QUESTION_TYPES = [
   {
     id: 'listen_type',
     name: 'Listen and Type',
-    skills: ['listening', 'writing'],
+    skills: ['listening'],
     durationSec: 60,
     sessionLength: 6,
     descUz: 'Gapni tinglang (ko‘pi bilan 3 marta) va eshitganingizni aniq yozing.',
@@ -54,11 +54,11 @@ export const QUESTION_TYPES = [
   {
     id: 'read_aloud',
     name: 'Read Aloud',
-    skills: ['reading', 'speaking'],
+    skills: ['speaking'],
     durationSec: 20,
     sessionLength: 5,
-    descUz: 'Ekrandagi gapni 20 soniya ichida ravon va aniq talaffuz bilan o‘qib bering.',
-    descEn: 'Record yourself reading the displayed sentence aloud within 20 seconds.',
+    descUz: 'Qo‘shimcha talaffuz mashqi: ekrandagi gapni 20 soniyada aniq o‘qib bering (rasmiy DET dan 2025-yilda olingan).',
+    descEn: 'Bonus pronunciation drill: read the displayed sentence aloud within 20 seconds (retired from official DET).',
     aiGeneratable: true,
     icon: '🗣️'
   },
@@ -121,7 +121,7 @@ export const QUESTION_TYPES = [
   {
     id: 'read_then_speak',
     name: 'Read, Then Speak',
-    skills: ['reading', 'speaking'],
+    skills: ['speaking'],
     prepSec: 20,
     durationSec: 90,
     sessionLength: 1,

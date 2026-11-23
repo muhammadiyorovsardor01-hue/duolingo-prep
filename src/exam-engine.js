@@ -22,7 +22,7 @@ export const EXPRESS_BLUEPRINT = [
   'read_select',
   'fill_blanks',
   'listen_type',
-  'read_aloud',
+  'read_then_speak',
   'write_photo',
   'speak_photo'
 ];
@@ -32,7 +32,7 @@ export const FULL_BLUEPRINT = [
   'fill_blanks',
   'read_select',
   'listen_type',
-  'read_aloud',
+  'read_then_speak',
   'read_complete',
   'read_select',
   'fill_blanks',
@@ -41,7 +41,7 @@ export const FULL_BLUEPRINT = [
   'fill_blanks',
   'read_complete',
   'listen_type',
-  'read_aloud',
+  'speak_photo',
   'read_select',
   'fill_blanks',
   'interactive_reading',

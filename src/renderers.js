@@ -802,7 +802,7 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
     const turnChoices = answer?.turnChoices || [];
     const summaryText = answer?.summaryText || '';
     let aiSummaryEval = null;
-    let summaryPct = null;
+    let summaryDetScore = null;
 
     if (summaryText.trim()) {
       if (hasApi) {
@@ -816,7 +816,7 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
             wordCount: countWords(summaryText),
             feedbackLang: lang
           });
-          summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
+          summaryDetScore = aiSummaryEval.estimatedScore;
         } catch {
           aiSummaryEval = await evaluateWritingSmart({
             taskType: 'interactive_listening',
@@ -824,7 +824,7 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
             userResponse: summaryText,
             lang
           });
-          summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
+          summaryDetScore = aiSummaryEval.estimatedScore;
         }
       } else {
         aiSummaryEval = await evaluateWritingSmart({
@@ -833,11 +833,11 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
           userResponse: summaryText,
           lang
         });
-        summaryPct = Math.round(((aiSummaryEval.estimatedScore - 10) / 150) * 100);
+        summaryDetScore = aiSummaryEval.estimatedScore;
       }
     }
 
-    const base = gradeInteractiveListening(item, turnChoices, summaryPct);
+    const base = gradeInteractiveListening(item, turnChoices, summaryDetScore);
     return { ...base, aiFeedback: aiSummaryEval, summaryText };
   }
 

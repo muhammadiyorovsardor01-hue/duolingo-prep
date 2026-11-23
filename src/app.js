@@ -24,7 +24,7 @@ import {
   shuffleArray,
   buildReadSelectRound
 } from './questions-bank.js';
-import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, pctToDetScore, roundDetScore } from './scoring.js';
+import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText } from './speech.js';
 import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound } from './sounds.js';
@@ -587,17 +587,20 @@ function startPracticeSession(typeId, useAi) {
     const avgPct = sessionResults.length
       ? Math.round(sessionResults.reduce((s, r) => s + r.result.pctScore, 0) / sessionResults.length)
       : 0;
-    const avgDiff = sessionResults.length
-      ? sessionResults.reduce((s, r) => s + (r.item.difficulty || 3), 0) / sessionResults.length
-      : currentDiff;
     const correctCount = sessionResults.filter((r) => r.result.correct).length;
     const sessionDetScore = isObjective
-      ? pctToDetScore(avgPct, avgDiff)
+      ? estimateAbilityIRT(sessionResults.map((r) => ({
+          type: typeId,
+          difficulty: r.item.difficulty || 3,
+          pctScore: r.result.pctScore
+        })))
       : roundDetScore(
           sessionResults.length
             ? sessionResults.reduce((s, r) => s + r.result.detScore, 0) / sessionResults.length
             : 10
         );
+    const rangeLow = Math.max(10, sessionDetScore - 5);
+    const rangeHigh = Math.min(160, sessionDetScore + 5);
 
     if (sessionResults.length > 0) {
       recordPracticeAttempt({
@@ -630,7 +633,7 @@ function startPracticeSession(typeId, useAi) {
         <div class="det-summary-grid">
           <div class="det-summary-stat" style="background:var(--accent-soft);border-color:#FFC999;">
             <div class="det-summary-stat-val" style="color:var(--accent-hover);">${sessionDetScore}</div>
-            <div class="det-summary-stat-lbl">DET Band / 160</div>
+            <div class="det-summary-stat-lbl">DET Band (${rangeLow}–${rangeHigh})</div>
           </div>
           <div class="det-summary-stat">
             <div class="det-summary-stat-val">${isObjective ? `${correctCount}/${sessionResults.length}` : `${avgPct}%`}</div>

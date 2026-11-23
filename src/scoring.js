@@ -3,58 +3,151 @@ export function roundDetScore(value) {
   return Math.round(clamped / 5) * 5;
 }
 
-export function pctToDetScore(pct, difficulty = 3) {
-  const safePct = Math.max(0, Math.min(100, Number(pct) || 0));
-  // Difficulty adjusts ceiling slightly so harder items reward 140-160 while easy items cap realistically
-  const diffOffset = (Number(difficulty || 3) - 3) * 6;
-  const raw = 25 + (safePct / 100) * 125 + diffOffset * (safePct / 100);
-  return roundDetScore(raw);
+export const DIFFICULTY_THETA = {
+  1: 65,
+  2: 90,
+  3: 115,
+  4: 135,
+  5: 152
+};
+
+export const TASK_WEIGHTS = {
+  read_select: 0.6,
+  fill_blanks: 1.0,
+  read_complete: 2.5,
+  interactive_reading: 4.0,
+  listen_type: 1.5,
+  interactive_listening: 3.5,
+  write_photo: 2.0,
+  interactive_writing: 3.5,
+  writing_sample: 3.0,
+  speak_photo: 2.5,
+  read_then_speak: 3.0,
+  speaking_sample: 3.5,
+  read_aloud: 1.5
+};
+
+export const GUESSING_FLOOR = {
+  read_select: 0.46,
+  interactive_reading: 0.15,
+  interactive_listening: 0.18
+};
+
+export function estimateAbilityIRT(responses = []) {
+  if (!Array.isArray(responses) || responses.length === 0) return 10;
+
+  const a = 0.085;
+  const priorMean = 65;
+  const priorSd = 40;
+  let bestTheta = 65;
+  let bestObj = -Infinity;
+
+  for (let theta = 10; theta <= 160; theta += 1) {
+    let logLik = -Math.pow(theta - priorMean, 2) / (2 * priorSd * priorSd);
+
+    for (const r of responses) {
+      const diff = Math.max(1, Math.min(5, Math.round(Number(r.difficulty || 3))));
+      const b = DIFFICULTY_THETA[diff] || 115;
+      const c = GUESSING_FLOOR[r.type] || 0;
+      const w = Number.isFinite(r.weight) ? r.weight : (TASK_WEIGHTS[r.type] || 1.0);
+      const y = Math.max(0.01, Math.min(0.99, (Number(r.pctScore) || 0) / 100));
+
+      const logistic = 1 / (1 + Math.exp(-a * (theta - b)));
+      const p = Math.max(0.001, Math.min(0.999, c + (1 - c) * logistic));
+      logLik += w * (y * Math.log(p) + (1 - y) * Math.log(1 - p));
+    }
+
+    if (logLik > bestObj) {
+      bestObj = logLik;
+      bestTheta = theta;
+    }
+  }
+
+  return roundDetScore(bestTheta);
 }
 
+export function pctToDetScore(pct, difficulty = 3, type = 'fill_blanks') {
+  return estimateAbilityIRT([{ pctScore: pct, difficulty, type, weight: 2.5 }]);
+}
+
+// Official July 2024 – 2026 DET Individual Subscore mapping
 export const SKILL_MAP = {
   read_select: ['reading'],
-  fill_blanks: ['reading', 'writing'],
-  read_complete: ['reading', 'writing'],
-  listen_type: ['listening', 'writing'],
-  read_aloud: ['reading', 'speaking'],
+  fill_blanks: ['reading'],
+  read_complete: ['reading'],
   interactive_reading: ['reading'],
+  listen_type: ['listening'],
   interactive_listening: ['listening', 'writing'],
   write_photo: ['writing'],
   interactive_writing: ['writing'],
-  speak_photo: ['speaking'],
-  read_then_speak: ['reading', 'speaking'],
   writing_sample: ['writing'],
-  speaking_sample: ['speaking']
+  speak_photo: ['speaking'],
+  read_then_speak: ['speaking'],
+  speaking_sample: ['speaking'],
+  read_aloud: ['speaking']
 };
 
 export function computeSubscores(itemResults = []) {
-  const buckets = {
+  const objectiveBuckets = {
     reading: [],
+    listening: []
+  };
+  const rubricBuckets = {
     writing: [],
-    listening: [],
     speaking: []
   };
 
   for (const res of itemResults) {
-    const skills = SKILL_MAP[res.type] || ['reading'];
-    const score = roundDetScore(res.detScore ?? pctToDetScore(res.pctScore || 0, res.difficulty || 3));
+    const type = res.type;
+    const diff = res.difficulty || 3;
+    const w = TASK_WEIGHTS[type] || 1.5;
+
+    if (type === 'interactive_listening') {
+      const mcPct = Number.isFinite(res.mcPct) ? res.mcPct : (res.pctScore || 0);
+      objectiveBuckets.listening.push({ type, difficulty: diff, pctScore: mcPct, weight: w });
+      if (Number.isFinite(res.writingScore)) {
+        rubricBuckets.writing.push({ score: roundDetScore(res.writingScore), weight: 2.0 });
+      }
+      continue;
+    }
+
+    const skills = SKILL_MAP[type] || ['reading'];
     for (const sk of skills) {
-      if (buckets[sk]) buckets[sk].push(score);
+      if (objectiveBuckets[sk]) {
+        objectiveBuckets[sk].push({
+          type,
+          difficulty: diff,
+          pctScore: res.pctScore ?? 0,
+          weight: w
+        });
+      } else if (rubricBuckets[sk]) {
+        const det = roundDetScore(res.detScore ?? pctToDetScore(res.pctScore || 0, diff, type));
+        rubricBuckets[sk].push({ score: det, weight: w });
+      }
     }
   }
 
-  const avgOrDefault = (arr, fallback) =>
-    arr.length ? roundDetScore(arr.reduce((a, b) => a + b, 0) / arr.length) : fallback;
+  const weightedAvg = (arr) => {
+    if (!arr.length) return null;
+    const num = arr.reduce((sum, x) => sum + x.score * x.weight, 0);
+    const den = arr.reduce((sum, x) => sum + x.weight, 0);
+    return roundDetScore(den > 0 ? num / den : 10);
+  };
 
-  const nonEmpty = Object.values(buckets).flat();
-  const baseFallback = nonEmpty.length
-    ? roundDetScore(nonEmpty.reduce((a, b) => a + b, 0) / nonEmpty.length)
-    : 10;
+  const rawSkills = {
+    reading: objectiveBuckets.reading.length ? estimateAbilityIRT(objectiveBuckets.reading) : null,
+    listening: objectiveBuckets.listening.length ? estimateAbilityIRT(objectiveBuckets.listening) : null,
+    writing: weightedAvg(rubricBuckets.writing),
+    speaking: weightedAvg(rubricBuckets.speaking)
+  };
 
-  const reading = avgOrDefault(buckets.reading, baseFallback);
-  const writing = avgOrDefault(buckets.writing, baseFallback);
-  const listening = avgOrDefault(buckets.listening, baseFallback);
-  const speaking = avgOrDefault(buckets.speaking, baseFallback);
+  const present = Object.values(rawSkills).filter((v) => v != null);
+  const fallback = present.length ? roundDetScore(present.reduce((a, b) => a + b, 0) / present.length) : 10;
+
+  const reading = rawSkills.reading ?? fallback;
+  const writing = rawSkills.writing ?? fallback;
+  const listening = rawSkills.listening ?? fallback;
+  const speaking = rawSkills.speaking ?? fallback;
 
   const literacy = roundDetScore((reading + writing) / 2);
   const comprehension = roundDetScore((reading + listening) / 2);
@@ -69,26 +162,29 @@ export function computeSubscores(itemResults = []) {
   };
 }
 
+// Official Duolingo English Test Concordance Table (2024-2026)
 export function scoreToIelts(det) {
   const s = Number(det) || 10;
   if (s >= 155) return '8.5–9.0';
-  if (s >= 145) return '7.5–8.0';
-  if (s >= 135) return '7.0';
-  if (s >= 125) return '6.5';
-  if (s >= 110) return '6.0';
+  if (s >= 150) return '8.0';
+  if (s >= 140) return '7.5';
+  if (s >= 130) return '7.0';
+  if (s >= 120) return '6.5';
+  if (s >= 105) return '6.0';
   if (s >= 95) return '5.5';
   if (s >= 80) return '5.0';
   if (s >= 65) return '4.5';
-  return '≤4.0';
+  if (s >= 60) return '4.0';
+  return '<4.0';
 }
 
 export function scoreToCefr(det) {
   const s = Number(det) || 10;
   if (s >= 155) return 'C2';
   if (s >= 130) return 'C1';
-  if (s >= 100) return 'B2';
+  if (s >= 95) return 'B2';
   if (s >= 60) return 'B1';
-  return 'A2';
+  return 'A1–A2';
 }
 
 export function nextAdaptiveDifficulty(currentDiff, pctScore) {
@@ -132,7 +228,7 @@ export function gradeReadSelect(item, userIsReal) {
     type: 'read_select',
     correct,
     pctScore,
-    detScore: pctToDetScore(pctScore, item.difficulty || 3),
+    detScore: pctToDetScore(pctScore, item.difficulty || 3, 'read_select'),
     expected: item.isReal ? 'Real English word' : 'Not a real English word',
     userSummary: answered ? (userIsReal ? 'Yes (Real)' : 'No (Fake)') : 'No answer'
   };
@@ -148,7 +244,7 @@ export function gradeFillBlanks(item, typedSuffix) {
     type: 'fill_blanks',
     correct: exact,
     pctScore,
-    detScore: pctToDetScore(pctScore, item.difficulty || 3),
+    detScore: pctToDetScore(pctScore, item.difficulty || 3, 'fill_blanks'),
     expected: item.fullWord || `${item.prefix}${item.missing}`,
     userSummary: `${item.prefix}${actual || '_'}`
   };
@@ -177,7 +273,7 @@ export function gradeReadComplete(item, userBlanks = []) {
     totalBlanks: blanks.length,
     details,
     pctScore,
-    detScore: pctToDetScore(pctScore, item.difficulty || 3),
+    detScore: pctToDetScore(pctScore, item.difficulty || 3, 'read_complete'),
     expected: details.map((d) => `${d.prefix}${d.expected}`).join(', '),
     userSummary: `${correctCount}/${blanks.length} blanks exact`
   };
@@ -216,7 +312,7 @@ export function gradeListenType(item, userText) {
     type: 'listen_type',
     correct: pctScore >= 95,
     pctScore,
-    detScore: pctToDetScore(pctScore, item.difficulty || 3),
+    detScore: pctToDetScore(pctScore, item.difficulty || 3, 'listen_type'),
     wordDiff,
     expected: item.sentence,
     userSummary: userText
@@ -281,13 +377,13 @@ export function gradeInteractiveReading(item, stageAnswers = {}) {
     totalChecks: checks.length,
     checks,
     pctScore,
-    detScore: pctToDetScore(pctScore, item.difficulty || 3),
+    detScore: pctToDetScore(pctScore, item.difficulty || 3, 'interactive_reading'),
     expected: `${checks.length} stages`,
     userSummary: `${passed}/${checks.length} correct`
   };
 }
 
-export function gradeInteractiveListening(item, turnChoices = [], summaryScorePct = null) {
+export function gradeInteractiveListening(item, turnChoices = [], summaryDetScore = null) {
   const turns = item.turns || [];
   let hits = 0;
   const turnDetails = turns.map((turn, idx) => {
@@ -296,16 +392,34 @@ export function gradeInteractiveListening(item, turnChoices = [], summaryScorePc
     if (ok) hits += 1;
     return { prompt: turn.audioText, expected: turn.correct, got: chosen || '(none)', ok };
   });
-  const mcPct = turns.length ? (hits / turns.length) * 100 : 0;
-  const combinedPct = summaryScorePct !== null ? Math.round(mcPct * 0.6 + summaryScorePct * 0.4) : Math.round(mcPct);
+  const mcPct = turns.length ? Math.round((hits / turns.length) * 100) : 0;
+  const listeningScore = estimateAbilityIRT([{
+    type: 'interactive_listening',
+    difficulty: item.difficulty || 3,
+    pctScore: mcPct,
+    weight: 3.5
+  }]);
+  const writingScore = summaryDetScore !== null && Number.isFinite(summaryDetScore)
+    ? roundDetScore(summaryDetScore)
+    : null;
+  const detScore = writingScore !== null
+    ? roundDetScore(listeningScore * 0.6 + writingScore * 0.4)
+    : listeningScore;
+  const combinedPct = writingScore !== null
+    ? Math.round(mcPct * 0.6 + ((writingScore - 10) / 150) * 100 * 0.4)
+    : mcPct;
+
   return {
     type: 'interactive_listening',
     correct: hits === turns.length,
     hits,
     totalTurns: turns.length,
     turnDetails,
+    mcPct,
+    listeningScore,
+    writingScore,
     pctScore: combinedPct,
-    detScore: pctToDetScore(combinedPct, item.difficulty || 3),
+    detScore,
     expected: `${turns.length} turns`,
     userSummary: `${hits}/${turns.length} conversation choices`
   };
