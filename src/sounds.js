@@ -116,6 +116,15 @@ export function playCorrectSound(enabled = true) {
   playMarimbaNote(ctx, now + 0.092, 783.99, 0.36, 0.20);   // G5
 }
 
+export function playPartialSound(enabled = true) {
+  if (!enabled) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  playMarimbaNote(ctx, now, 523.25, 0.13, 0.19);           // C5
+  playMarimbaNote(ctx, now + 0.095, 659.25, 0.30, 0.19);   // E5
+}
+
 export function playWrongSound(enabled = true) {
   if (!enabled) return;
   const ctx = getAudioContext();

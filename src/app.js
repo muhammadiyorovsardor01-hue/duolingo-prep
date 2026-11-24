@@ -27,7 +27,7 @@ import {
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText, stopSpeaking, unlockSpeech } from './speech.js';
-import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound } from './sounds.js';
+import { playCorrectSound, playPartialSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound } from './sounds.js';
 import {
   mountQuestionRenderer,
   applyObjectiveReviewVisuals,
@@ -409,11 +409,12 @@ function getSkillIconSvg(typeId) {
   if (typeId === 'read_complete') {
     return `
       <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
-        <rect x="7" y="11" width="38" height="30" rx="7" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.5"/>
-        <rect x="13" y="19" width="10" height="4" rx="2" fill="#D4D8DF"/>
-        <rect x="26" y="18.5" width="13" height="5" rx="2.5" fill="#1CB0F6"/>
-        <rect x="13" y="29" width="15" height="4" rx="2" fill="#D4D8DF"/>
-        <rect x="31" y="29" width="8" height="4" rx="2" fill="#D4D8DF"/>
+        <rect x="7" y="10" width="38" height="32" rx="7" fill="#FFFFFF" stroke="#D8DCE3" stroke-width="2.4"/>
+        <rect x="13" y="17" width="11" height="4.5" rx="2.2" fill="#D4D8DF"/>
+        <rect x="27" y="16" width="12" height="6.5" rx="2.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="1.8"/>
+        <rect x="13" y="25" width="26" height="4.5" rx="2.2" fill="#D4D8DF"/>
+        <rect x="13" y="32" width="13" height="6.5" rx="2.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="1.8"/>
+        <rect x="29" y="33" width="10" height="4.5" rx="2.2" fill="#D4D8DF"/>
       </svg>
     `;
   }
@@ -520,6 +521,34 @@ function getFillBlanksCompleteSvg() {
       <rect x="76" y="12" width="32" height="34" rx="7" fill="#F4F5F7" stroke="#D8DCE3" stroke-width="2.8"/>
     </svg>
   `;
+}
+
+function getReadCompleteDoneSvg() {
+  return `
+    <svg width="110" height="92" viewBox="0 0 110 92" fill="none" aria-hidden="true">
+      <rect x="13" y="10" width="84" height="72" rx="14" fill="#FFFFFF" stroke="#D8DCE3" stroke-width="3"/>
+      <rect x="24" y="23" width="26" height="9" rx="4.5" fill="#D8DCE3"/>
+      <rect x="56" y="21.5" width="29" height="12" rx="4.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="2.8"/>
+      <rect x="24" y="42" width="61" height="9" rx="4.5" fill="#D8DCE3"/>
+      <rect x="24" y="58.5" width="30" height="12" rx="4.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="2.8"/>
+      <rect x="60" y="60" width="25" height="9" rx="4.5" fill="#D8DCE3"/>
+    </svg>
+  `;
+}
+
+function buildAnnotatedPassageHtml(item, details = []) {
+  let bIdx = 0;
+  return (item.segments || []).map((seg) => {
+    if (seg.missing) {
+      const det = details[bIdx] || { ok: false };
+      bIdx += 1;
+      const fullWord = `${seg.prefix || ''}${seg.missing || ''}`;
+      return det.ok
+        ? escapeHtml(fullWord)
+        : `<span class="det-rc-missed-word">${escapeHtml(fullWord)}</span>`;
+    }
+    return escapeHtml(seg.text || '');
+  }).join('');
 }
 
 function formatShortTimer(sec) {
@@ -1440,6 +1469,460 @@ function startFillBlanksPractice(useAi) {
   }
 }
 
+function startReadCompletePractice(useAi) {
+  const meta = getQuestionTypeMeta('read_complete');
+  const totalItems = meta.sessionLength || 2;
+  const durationSec = meta.durationSec || 180;
+  const sessionStartedAt = Date.now();
+  const usedIds = new Set();
+  const seenIds = getSeenIds('read_complete');
+  const maxKeep = Math.max(1, getBankCapacity('read_complete') - 1);
+  const sessionResults = [];
+
+  let currentIndex = 0;
+  let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let soundOn = loadState().settings.soundEnabled !== false;
+  let aborted = false;
+  let loaderTimer = null;
+  let itemTimerId = null;
+  let finishDotsTimer = null;
+  let drawerKeyTimer = null;
+  let activeRenderer = null;
+  let continueKeyListener = null;
+  let prefetchedNext = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
+
+  const clearItemTimers = () => {
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
+    if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
+    if (continueKeyListener) {
+      document.removeEventListener('keydown', continueKeyListener);
+      continueKeyListener = null;
+    }
+  };
+
+  practiceCleanup = () => {
+    aborted = true;
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+  };
+
+  const prefetchAiItem = (idx, diff) => {
+    const s = loadState().settings;
+    if (!useAi || !s.apiKey || idx >= totalItems) {
+      prefetchedNext = null;
+      return;
+    }
+    prefetchedNext = {
+      index: idx,
+      promise: generateQuestion({ apiKey: s.apiKey, model: s.model, type: 'read_complete', difficulty: diff }).catch(() => null)
+    };
+  };
+
+  mainEl.innerHTML = getOwlLoaderHtml();
+
+  const renderCompletion = () => {
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+    if (aborted) return;
+
+    const totalSec = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+    const totalExact = sessionResults.reduce((s, r) => s + (r.result.correctCount || 0), 0);
+    const totalBlanks = sessionResults.reduce((s, r) => s + (r.result.totalBlanks || 0), 0);
+    const avgPct = sessionResults.length
+      ? Math.round(sessionResults.reduce((s, r) => s + r.result.pctScore, 0) / sessionResults.length)
+      : 0;
+    const sessionDetScore = estimateAbilityIRT(sessionResults.map((r) => ({
+      type: 'read_complete',
+      difficulty: r.item.difficulty || 3,
+      pctScore: r.result.pctScore
+    })));
+    const rangeLow = Math.max(10, sessionDetScore - 5);
+    const rangeHigh = Math.min(160, sessionDetScore + 5);
+
+    if (sessionResults.length > 0) {
+      recordPracticeAttempt({
+        type: 'read_complete',
+        detScore: sessionDetScore,
+        pctScore: avgPct,
+        timeSec: totalSec
+      });
+      syncChrome();
+    }
+
+    playCompleteSound(soundOn);
+
+    const missedWords = [];
+    sessionResults.forEach((r) => {
+      (r.result.details || []).forEach((d) => {
+        if (!d.ok) {
+          missedWords.push({
+            fullWord: `${d.prefix || ''}${d.expected || ''}`,
+            got: d.got ? `${d.prefix || ''}${d.got}` : '—',
+            title: r.item.title || ''
+          });
+        }
+      });
+    });
+
+    mainEl.innerHTML = `
+      <div class="det-rs-complete">
+        <div class="det-rs-complete-body">
+          ${getReadCompleteDoneSvg()}
+          <h2 class="det-rs-complete-title">Practice complete! Keep it up!</h2>
+          <p class="det-rs-complete-sub">${totalExact}/${totalBlanks} blanks exact · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
+          ${missedWords.length > 0 ? `
+            <button type="button" id="dp-rc-missed-btn" class="det-rs-missed-toggle">
+              Review ${missedWords.length} missed ${missedWords.length === 1 ? 'word' : 'words'}
+            </button>
+            <div id="dp-rc-missed-panel" class="det-rs-missed-panel hidden">
+              ${missedWords.slice(0, 18).map((m) => `
+                <div class="det-rs-missed-row">
+                  <strong>${escapeHtml(m.fullWord)}</strong>
+                  <span style="color:#777777;"> · Your input: ${escapeHtml(m.got)}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+        <div class="det-rs-complete-footer">
+          <button type="button" id="dp-rc-done" class="det-btn-blue">DONE</button>
+        </div>
+      </div>
+    `;
+
+    const missedBtn = mainEl.querySelector('#dp-rc-missed-btn');
+    const missedPanel = mainEl.querySelector('#dp-rc-missed-panel');
+    missedBtn?.addEventListener('click', () => {
+      missedPanel?.classList.toggle('hidden');
+    });
+
+    const finishSession = () => {
+      playTapSound(soundOn);
+      navigate('practice');
+    };
+
+    mainEl.querySelector('#dp-rc-done').addEventListener('click', finishSession);
+    continueKeyListener = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        finishSession();
+      }
+    };
+    document.addEventListener('keydown', continueKeyListener);
+  };
+
+  const launchArena = () => {
+    if (aborted) return;
+
+    mainEl.innerHTML = `
+      <div class="det-rs-shell">
+        <header class="det-rs-header">
+          <div class="det-rs-header-inner">
+            <div class="det-rs-timer-group">
+              <span class="det-rs-timer-clock" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.1"/>
+                  <path d="M12 7.5V12.5L15 14.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span id="dp-rc-timer" class="det-rs-timer-val">3:00</span>
+              <span class="det-rs-timer-sub"><span>for this</span><span>question</span></span>
+            </div>
+            <div class="det-rs-header-actions">
+              <button type="button" id="dp-rc-sound" class="det-rs-icon-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+              <button type="button" id="dp-rc-exit" class="det-rs-icon-btn" title="Exit Practice" aria-label="Exit">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <main class="det-fb-stage">
+          <div id="dp-rc-mount" style="width:100%;"></div>
+        </main>
+        <div id="dp-rc-submit-bar" class="det-fb-submit-bar">
+          <div class="det-fb-submit-inner">
+            <button type="button" id="dp-rc-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        </div>
+        <div id="dp-rc-drawer" class="det-rs-drawer hidden"></div>
+      </div>
+    `;
+
+    const timerEl = mainEl.querySelector('#dp-rc-timer');
+    const mountEl = mainEl.querySelector('#dp-rc-mount');
+    const submitBarEl = mainEl.querySelector('#dp-rc-submit-bar');
+    const submitBtnEl = mainEl.querySelector('#dp-rc-submit');
+    const drawerEl = mainEl.querySelector('#dp-rc-drawer');
+    const soundBtn = mainEl.querySelector('#dp-rc-sound');
+
+    mainEl.querySelector('#dp-rc-exit').addEventListener('click', () => navigate('practice'));
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn;
+      soundBtn.textContent = soundOn ? '🔊' : '🔇';
+      updateSettings({ soundEnabled: soundOn });
+    });
+
+    let activeSubmitHandler = null;
+    submitBtnEl.addEventListener('click', () => {
+      if (activeSubmitHandler) activeSubmitHandler();
+    });
+
+    const loadPassage = async () => {
+      if (aborted) return;
+      clearItemTimers();
+      activeRenderer?.cleanup();
+      activeRenderer = null;
+
+      if (currentIndex >= totalItems) {
+        renderCompletion();
+        return;
+      }
+
+      const settings = loadState().settings;
+      const lang = settings.uiLang || 'uz';
+      let item = null;
+
+      if (useAi && settings.apiKey) {
+        if (prefetchedNext && prefetchedNext.index === currentIndex) {
+          item = await prefetchedNext.promise;
+        }
+        if (!item) {
+          try {
+            item = await generateQuestion({ apiKey: settings.apiKey, model: settings.model, type: 'read_complete', difficulty: currentDiff });
+          } catch (err) {
+            showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+          }
+        }
+      }
+
+      if (!item) {
+        item = pickQuestionFromBank('read_complete', currentDiff, usedIds, { seenIds });
+      }
+      if (aborted) return;
+
+      usedIds.add(item.id);
+      if (!item.isAiGenerated) {
+        seenIds.add(item.id);
+        markSeenIds('read_complete', [item.id], maxKeep);
+      }
+      prefetchAiItem(currentIndex + 1, currentDiff);
+
+      drawerEl.className = 'det-rs-drawer hidden';
+      drawerEl.innerHTML = '';
+      submitBarEl.classList.remove('hidden');
+      submitBtnEl.disabled = true;
+
+      let leftSec = durationSec;
+      let submitted = false;
+
+      const updateTimerUi = () => {
+        if (!timerEl) return;
+        timerEl.textContent = formatShortTimer(leftSec);
+        timerEl.classList.toggle('urgent', leftSec <= 15);
+      };
+      updateTimerUi();
+
+      const handleAnswer = async (timedOut = false) => {
+        if (submitted || aborted) return;
+        submitted = true;
+        activeSubmitHandler = null;
+        clearItemTimers();
+
+        const answer = await activeRenderer.getAnswer();
+        activeRenderer.cleanup();
+        if (aborted) return;
+
+        const result = await gradeAnyItem({ item, answer, settings });
+        if (aborted) return;
+
+        sessionResults.push({ item, result });
+
+        if (!result.correct) {
+          const missedSummary = (result.details || [])
+            .filter((d) => !d.ok)
+            .slice(0, 6)
+            .map((d) => `${d.prefix || ''}${d.expected || ''}`)
+            .join(', ');
+          addMistake({
+            type: 'read_complete',
+            prompt: item.title || 'Read and Complete',
+            userAnswer: result.userSummary,
+            correctAnswer: missedSummary || result.expected,
+            note: 'Read and Complete'
+          });
+          syncChrome();
+        }
+
+        if (practiceDifficulty === 'adaptive') {
+          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+        }
+
+        applyObjectiveReviewVisuals(mountEl, item, result);
+        submitBarEl.classList.add('hidden');
+
+        const outcome = result.correctCount === result.totalBlanks
+          ? 'correct'
+          : (result.correctCount > 0 ? 'partial' : 'wrong');
+
+        if (outcome === 'correct') {
+          playCorrectSound(soundOn);
+        } else if (outcome === 'partial') {
+          playPartialSound(soundOn);
+        } else if (timedOut) {
+          playTimeoutSound(soundOn);
+        } else {
+          playWrongSound(soundOn);
+        }
+
+        const checkBadgeSvg = `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        const crossBadgeSvg = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+        const chevronSvg = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M5 12.5L10 7.5L15 12.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+        if (outcome === 'correct') {
+          drawerEl.className = 'det-rs-drawer correct';
+          drawerEl.innerHTML = `
+            <div class="det-rs-drawer-inner">
+              <div class="det-rs-drawer-row">
+                <span class="det-rs-badge">${checkBadgeSvg}</span>
+                <span class="det-rs-heading">Great job!</span>
+              </div>
+              <button type="button" id="dp-rc-cta" class="det-rs-cta">CONTINUE</button>
+            </div>
+          `;
+        } else {
+          const isPartial = outcome === 'partial';
+          const annotatedHtml = buildAnnotatedPassageHtml(item, result.details || []);
+          drawerEl.className = `det-rs-drawer ${isPartial ? 'partial' : 'wrong'}`;
+          drawerEl.innerHTML = `
+            <div class="det-rs-drawer-inner">
+              <div class="det-rc-drawer-top">
+                <div class="det-rs-drawer-row">
+                  <span class="det-rs-badge">${isPartial ? checkBadgeSvg : crossBadgeSvg}</span>
+                  <span class="det-rs-heading">${isPartial ? 'Partially correct' : 'Incorrect'}</span>
+                </div>
+                <button type="button" id="dp-rc-expand" class="det-rc-expand-btn" aria-label="Expand answer">${chevronSvg}</button>
+              </div>
+              <div id="dp-rc-answer-box" class="det-rc-answer-box">
+                <div class="det-rc-answer-label">Correct Answer:</div>
+                <div class="det-rc-answer-text">${annotatedHtml}</div>
+              </div>
+              <button type="button" id="dp-rc-cta" class="det-rs-cta">GOT IT</button>
+            </div>
+          `;
+
+          const expandBtn = drawerEl.querySelector('#dp-rc-expand');
+          const answerBox = drawerEl.querySelector('#dp-rc-answer-box');
+          const toggleExpand = () => {
+            expandBtn?.classList.toggle('expanded');
+            answerBox?.classList.toggle('expanded');
+          };
+          expandBtn?.addEventListener('click', toggleExpand);
+          answerBox?.addEventListener('click', toggleExpand);
+        }
+
+        const ctaBtn = drawerEl.querySelector('#dp-rc-cta');
+        let proceeding = false;
+        const proceed = () => {
+          if (proceeding || aborted) return;
+          proceeding = true;
+          if (drawerKeyTimer) {
+            clearTimeout(drawerKeyTimer);
+            drawerKeyTimer = null;
+          }
+          if (continueKeyListener) {
+            document.removeEventListener('keydown', continueKeyListener);
+            continueKeyListener = null;
+          }
+          playTapSound(soundOn);
+
+          const isLast = currentIndex + 1 >= totalItems;
+          if (isLast) {
+            ctaBtn.disabled = true;
+            ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
+            finishDotsTimer = setTimeout(() => {
+              finishDotsTimer = null;
+              if (!aborted) renderCompletion();
+            }, 420);
+          } else {
+            currentIndex += 1;
+            loadPassage();
+          }
+        };
+
+        ctaBtn.addEventListener('click', proceed);
+        continueKeyListener = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            proceed();
+          }
+        };
+        drawerKeyTimer = setTimeout(() => {
+          drawerKeyTimer = null;
+          if (!aborted && !proceeding && continueKeyListener) {
+            document.addEventListener('keydown', continueKeyListener);
+          }
+        }, 0);
+      };
+
+      activeSubmitHandler = () => {
+        if (!submitBtnEl.disabled) {
+          handleAnswer(false);
+        }
+      };
+
+      activeRenderer = mountQuestionRenderer(mountEl, item, {
+        settings,
+        lang,
+        onSubmitReady: (hasAny) => {
+          if (!submitted && !aborted) {
+            submitBtnEl.disabled = !hasAny;
+          }
+        }
+      });
+
+      itemTimerId = setInterval(() => {
+        leftSec -= 1;
+        updateTimerUi();
+        if (leftSec <= 0) {
+          handleAnswer(true);
+        }
+      }, 1000);
+    };
+
+    loadPassage();
+  };
+
+  const settings = loadState().settings;
+  const minDelay = new Promise((resolve) => {
+    loaderTimer = setTimeout(() => {
+      loaderTimer = null;
+      resolve();
+    }, 550);
+  });
+
+  if (useAi && settings.apiKey) {
+    Promise.all([
+      minDelay,
+      prefetchAiItem(0, currentDiff) || prefetchedNext?.promise
+    ]).then(() => {
+      if (!aborted) launchArena();
+    });
+  } else {
+    minDelay.then(() => {
+      if (!aborted) launchArena();
+    });
+  }
+}
+
 function startPracticeSession(typeId, useAi) {
   if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
   if (typeId === 'read_select') {
@@ -1448,6 +1931,10 @@ function startPracticeSession(typeId, useAi) {
   }
   if (typeId === 'fill_blanks') {
     startFillBlanksPractice(useAi);
+    return;
+  }
+  if (typeId === 'read_complete') {
+    startReadCompletePractice(useAi);
     return;
   }
   unlockSpeech();

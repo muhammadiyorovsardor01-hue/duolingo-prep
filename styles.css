@@ -2674,3 +2674,150 @@ button {
     font-size: 17px;
   }
 }
+
+
+/* =========================================================
+   OFFICIAL DUOLINGO READ AND COMPLETE (.det-rc-*)
+   ========================================================= */
+.det-rc-title {
+  margin: 0 0 12px;
+  font-size: 16.5px;
+  font-weight: 800;
+  color: #3C3C3C;
+  line-height: 1.35;
+}
+
+.det-rc-passage {
+  font-size: 18px;
+  line-height: 2.4;
+  color: #3C3C3C;
+  font-weight: 400;
+}
+
+.det-rs-drawer.partial {
+  background: #FFF4CC;
+}
+
+.det-rs-drawer.partial .det-rs-badge {
+  background: #CD7900;
+}
+
+.det-rs-drawer.partial .det-rs-heading {
+  color: #CD7900;
+}
+
+.det-rs-drawer.partial .det-rs-cta {
+  background: #FFC800;
+  border-bottom: 4px solid #E5A400;
+  color: #FFFFFF;
+}
+
+.det-rc-drawer-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.det-rc-expand-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease;
+}
+
+.det-rs-drawer.partial .det-rc-expand-btn {
+  color: #CD7900;
+}
+
+.det-rs-drawer.wrong .det-rc-expand-btn {
+  color: #EA2B2B;
+}
+
+.det-rc-expand-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.det-rc-expand-btn svg {
+  transition: transform 0.18s ease;
+}
+
+.det-rc-expand-btn.expanded svg {
+  transform: rotate(180deg);
+}
+
+.det-rc-answer-box {
+  position: relative;
+  cursor: pointer;
+}
+
+.det-rc-answer-label {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.det-rs-drawer.partial .det-rc-answer-label,
+.det-rs-drawer.partial .det-rc-answer-text {
+  color: #CD7900;
+}
+
+.det-rs-drawer.wrong .det-rc-answer-label,
+.det-rs-drawer.wrong .det-rc-answer-text {
+  color: #EA2B2B;
+}
+
+.det-rc-answer-text {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  max-height: 68px;
+  overflow: hidden;
+  transition: max-height 0.22s ease;
+  position: relative;
+}
+
+.det-rc-answer-box:not(.expanded) .det-rc-answer-text::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  pointer-events: none;
+}
+
+.det-rs-drawer.partial .det-rc-answer-box:not(.expanded) .det-rc-answer-text::after {
+  background: linear-gradient(to bottom, rgba(255, 244, 204, 0), #FFF4CC);
+}
+
+.det-rs-drawer.wrong .det-rc-answer-box:not(.expanded) .det-rc-answer-text::after {
+  background: linear-gradient(to bottom, rgba(255, 223, 224, 0), #FFDFE0);
+}
+
+.det-rc-answer-box.expanded .det-rc-answer-text {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.det-rc-missed-word {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.8px;
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .det-rc-passage {
+    font-size: 16.5px;
+    line-height: 2.35;
+  }
+}
