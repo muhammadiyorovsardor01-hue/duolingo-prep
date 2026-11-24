@@ -17,7 +17,7 @@ function getAudioContext() {
   return sharedAudioCtx;
 }
 
-function playMarimbaNote(ctx, startTime, freq, duration, volume = 0.2) {
+function playMarimbaNote(ctx, startTime, freq, duration, volume = 0.18) {
   const fundOsc = ctx.createOscillator();
   const fundGain = ctx.createGain();
   fundOsc.type = 'sine';
@@ -35,15 +35,15 @@ function playMarimbaNote(ctx, startTime, freq, duration, volume = 0.2) {
 
   const peak = Math.max(0.005, volume);
   fundGain.gain.setValueAtTime(0.0001, startTime);
-  fundGain.gain.linearRampToValueAtTime(peak, startTime + 0.004);
+  fundGain.gain.linearRampToValueAtTime(peak, startTime + 0.003);
   fundGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
   overGain.gain.setValueAtTime(0.0001, startTime);
-  overGain.gain.linearRampToValueAtTime(peak * 0.26, startTime + 0.003);
+  overGain.gain.linearRampToValueAtTime(peak * 0.24, startTime + 0.0025);
   overGain.gain.exponentialRampToValueAtTime(0.0001, startTime + Math.min(duration * 0.55, 0.14));
 
   sparkleGain.gain.setValueAtTime(0.0001, startTime);
-  sparkleGain.gain.linearRampToValueAtTime(peak * 0.08, startTime + 0.002);
+  sparkleGain.gain.linearRampToValueAtTime(peak * 0.09, startTime + 0.002);
   sparkleGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.06);
 
   fundOsc.connect(fundGain);
@@ -63,7 +63,7 @@ function playMarimbaNote(ctx, startTime, freq, duration, volume = 0.2) {
   sparkleOsc.stop(startTime + 0.08);
 }
 
-function playWoodyNote(ctx, startTime, freq, endFreq, duration, volume = 0.22, cutoffHz = 560) {
+function playWoodyNote(ctx, startTime, freq, endFreq, duration, volume = 0.21, cutoffHz = 950) {
   const filter = ctx.createBiquadFilter();
   filter.type = 'lowpass';
   filter.frequency.setValueAtTime(cutoffHz, startTime);
@@ -88,11 +88,11 @@ function playWoodyNote(ctx, startTime, freq, endFreq, duration, volume = 0.22, c
 
   const peak = Math.max(0.005, volume);
   triGain.gain.setValueAtTime(0.0001, startTime);
-  triGain.gain.linearRampToValueAtTime(peak * 0.65, startTime + 0.006);
+  triGain.gain.linearRampToValueAtTime(peak * 0.65, startTime + 0.005);
   triGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
   sineGain.gain.setValueAtTime(0.0001, startTime);
-  sineGain.gain.linearRampToValueAtTime(peak * 0.55, startTime + 0.006);
+  sineGain.gain.linearRampToValueAtTime(peak * 0.55, startTime + 0.005);
   sineGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
   triOsc.connect(triGain);
@@ -112,8 +112,8 @@ export function playCorrectSound(enabled = true) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
-  playMarimbaNote(ctx, now, 587.33, 0.13, 0.20);           // D5
-  playMarimbaNote(ctx, now + 0.092, 783.99, 0.36, 0.20);   // G5
+  playMarimbaNote(ctx, now, 880.0, 0.11, 0.18);            // A5
+  playMarimbaNote(ctx, now + 0.078, 1174.66, 0.38, 0.18);  // D6
 }
 
 export function playPartialSound(enabled = true) {
@@ -121,8 +121,8 @@ export function playPartialSound(enabled = true) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
-  playMarimbaNote(ctx, now, 523.25, 0.13, 0.19);           // C5
-  playMarimbaNote(ctx, now + 0.095, 659.25, 0.30, 0.19);   // E5
+  playMarimbaNote(ctx, now, 783.99, 0.11, 0.17);           // G5
+  playMarimbaNote(ctx, now + 0.082, 987.77, 0.32, 0.17);   // B5
 }
 
 export function playWrongSound(enabled = true) {
@@ -130,8 +130,8 @@ export function playWrongSound(enabled = true) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
-  playWoodyNote(ctx, now, 246.94, 240.0, 0.11, 0.22, 620);         // B3
-  playWoodyNote(ctx, now + 0.115, 185.0, 170.0, 0.22, 0.22, 500);  // F#3 bend down
+  playWoodyNote(ctx, now, 311.13, 305.0, 0.115, 0.21, 1100);       // Eb4
+  playWoodyNote(ctx, now + 0.115, 261.63, 252.0, 0.24, 0.21, 950); // C4 gentle drop
 }
 
 export function playCompleteSound(enabled = true) {
@@ -139,10 +139,10 @@ export function playCompleteSound(enabled = true) {
   const ctx = getAudioContext();
   if (!ctx) return;
   const now = ctx.currentTime;
-  playMarimbaNote(ctx, now, 587.33, 0.16, 0.19);            // D5
-  playMarimbaNote(ctx, now + 0.085, 739.99, 0.16, 0.19);    // F#5
-  playMarimbaNote(ctx, now + 0.17, 880.0, 0.18, 0.19);      // A5
-  playMarimbaNote(ctx, now + 0.255, 1174.66, 0.45, 0.22);   // D6
+  playMarimbaNote(ctx, now, 698.46, 0.14, 0.17);           // F5
+  playMarimbaNote(ctx, now + 0.075, 880.0, 0.14, 0.17);    // A5
+  playMarimbaNote(ctx, now + 0.15, 1046.5, 0.16, 0.18);    // C6
+  playMarimbaNote(ctx, now + 0.225, 1396.91, 0.45, 0.20);  // F6
 }
 
 export function playTimeoutSound(enabled = true) {

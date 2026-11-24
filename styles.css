@@ -1965,46 +1965,28 @@ button {
   background: #C8ECFF;
 }
 
-.det-skill-prog-row {
+.det-skill-meta {
+  margin-top: 5px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #777777;
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.det-skill-track {
-  flex: 1;
-  height: 12px;
-  border-radius: 999px;
-  background: #E5E5E5;
-  overflow: hidden;
+.det-skill-arrow {
+  color: #CBCBCB;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.14s ease, transform 0.14s ease;
 }
 
-.det-skill-fill {
-  height: 100%;
-  background: #58CC02;
-  border-radius: 999px;
-  position: relative;
-  transition: width 0.3s ease;
-}
-
-.det-skill-fill::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  top: 2px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.det-skill-count {
-  font-size: 14px;
-  font-weight: 700;
-  color: #AFAFAF;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+.det-skill-card:hover .det-skill-arrow {
+  color: #1CB0F6;
+  transform: translateX(2px);
 }
 
 /* =========================================================
@@ -2078,6 +2060,35 @@ button {
   width: 100%;
   background: #FFFFFF;
   border-bottom: 1.5px solid #E5E5E5;
+  position: sticky;
+  top: 0;
+  z-index: 35;
+}
+
+.det-timer-bar-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1.5px;
+  height: 3px;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.det-timer-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: #1CB0F6;
+  transition: width 0.12s linear, background-color 0.2s ease;
+}
+
+.det-timer-bar-fill.warn {
+  background: #FF9600;
+}
+
+.det-timer-bar-fill.urgent {
+  background: #FF4B4B;
 }
 
 .det-rs-header-inner {
@@ -2694,6 +2705,13 @@ button {
   font-weight: 400;
 }
 
+.det-rc-passage .det-fb-cell,
+.det-rc-passage .det-fb-cell-input {
+  width: 25px;
+  height: 32px;
+  font-size: 17px;
+}
+
 .det-rs-drawer.partial {
   background: #FFF4CC;
 }
@@ -2819,6 +2837,13 @@ button {
   .det-rc-passage {
     font-size: 16.5px;
     line-height: 2.35;
+  }
+
+  .det-rc-passage .det-fb-cell,
+  .det-rc-passage .det-fb-cell-input {
+    width: 22px;
+    height: 30px;
+    font-size: 15.5px;
   }
 }
 

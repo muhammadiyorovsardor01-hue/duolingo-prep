@@ -573,6 +573,83 @@ function formatShortTimer(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+/** Millisecond-accurate countdown timer using performance.now() with pause/resume support. */
+function createPrecisionTimer({ totalSec, urgentSec = 3, onTick, onExpire }) {
+  const totalMs = Math.max(1000, Number(totalSec) * 1000);
+  let remainingMs = totalMs;
+  let lastTs = performance.now();
+  let paused = false;
+  let stopped = false;
+
+  const emit = () => {
+    const displaySec = Math.ceil(remainingMs / 1000);
+    const pct = Math.max(0, Math.min(100, (remainingMs / totalMs) * 100));
+    onTick?.({
+      displaySec,
+      pct,
+      isWarn: pct <= 25 && displaySec > urgentSec,
+      isUrgent: displaySec <= urgentSec
+    });
+  };
+
+  emit();
+
+  const intervalId = setInterval(() => {
+    if (stopped) return;
+    const now = performance.now();
+    if (paused) {
+      lastTs = now;
+      return;
+    }
+    remainingMs = Math.max(0, remainingMs - (now - lastTs));
+    lastTs = now;
+    emit();
+    if (remainingMs <= 0) {
+      stopped = true;
+      clearInterval(intervalId);
+      onExpire?.();
+    }
+  }, 100);
+
+  return {
+    pause() {
+      if (!stopped && !paused) {
+        remainingMs = Math.max(0, remainingMs - (performance.now() - lastTs));
+        paused = true;
+      }
+    },
+    resume() {
+      if (!stopped && paused) {
+        lastTs = performance.now();
+        paused = false;
+        emit();
+      }
+    },
+    stop() {
+      stopped = true;
+      clearInterval(intervalId);
+    },
+    getRemainingMs() {
+      if (!paused && !stopped) {
+        return Math.max(0, remainingMs - (performance.now() - lastTs));
+      }
+      return remainingMs;
+    }
+  };
+}
+
+function applyTimerTickUi(timerEl, barEl, { displaySec, pct, isWarn, isUrgent }) {
+  if (timerEl) {
+    timerEl.textContent = formatShortTimer(displaySec);
+    timerEl.classList.toggle('urgent', isUrgent);
+  }
+  if (barEl) {
+    barEl.style.width = `${pct.toFixed(2)}%`;
+    barEl.classList.toggle('warn', isWarn);
+    barEl.classList.toggle('urgent', isUrgent);
+  }
+}
+
 // 3. SKILL PRACTICE HUB & DRILL VIEW
 function renderPracticeHub() {
   const state = loadState();
@@ -624,8 +701,12 @@ function renderPracticeHub() {
       <div class="det-hub-list">
         ${filtered.map((qt) => {
           const stats = state.practiceStats[qt.id];
-          const progressCount = Math.min(6, Number(stats?.attempts || 0));
-          const progressPct = Math.round((progressCount / 6) * 100);
+          const timeLabel = formatShortTimer(qt.durationSec || 60);
+          const unitLabel = qt.id === 'interactive_reading'
+            ? '6 questions'
+            : qt.id === 'read_select'
+              ? `${qt.sessionLength || 15} words`
+              : `${qt.sessionLength || 1} ${(qt.sessionLength || 1) === 1 ? 'task' : 'items'}`;
           return `
             <div class="det-skill-card" role="button" tabindex="0" data-run-bank="${qt.id}">
               <div class="det-skill-icon">${getSkillIconSvg(qt.id)}</div>
@@ -634,13 +715,16 @@ function renderPracticeHub() {
                   <div class="det-skill-title">${escapeHtml(qt.name)}</div>
                   ${qt.aiGeneratable && hasKey ? `<button type="button" class="det-skill-ai-btn" data-run-ai="${qt.id}">✨ AI</button>` : ''}
                 </div>
-                <div class="det-skill-prog-row">
-                  <div class="det-skill-track">
-                    <div class="det-skill-fill" style="width:${progressPct}%"></div>
-                  </div>
-                  <span class="det-skill-count">${progressCount}/6</span>
+                <div class="det-skill-meta">
+                  <span>⏱ ${timeLabel} · ${unitLabel}</span>
+                  ${stats?.avgScore ? `<span>· DET ~${stats.avgScore}</span>` : ''}
                 </div>
               </div>
+              <span class="det-skill-arrow" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
             </div>
           `;
         }).join('')}
@@ -738,7 +822,7 @@ function startReadSelectPractice(useAi) {
 
   const clearItemTimers = () => {
     if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
-    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (itemTimerId) { itemTimerId.stop?.(); itemTimerId = null; }
     if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
     if (continueKeyListener) {
       document.removeEventListener('keydown', continueKeyListener);
@@ -860,6 +944,7 @@ function startReadSelectPractice(useAi) {
               </button>
             </div>
           </div>
+          <div class="det-timer-bar-track"><div id="dp-rs-bar" class="det-timer-bar-fill"></div></div>
         </header>
         <main class="det-rs-stage">
           <div id="dp-rs-mount" style="width:100%;"></div>
@@ -869,6 +954,7 @@ function startReadSelectPractice(useAi) {
     `;
 
     const timerEl = mainEl.querySelector('#dp-rs-timer');
+    const barEl = mainEl.querySelector('#dp-rs-bar');
     const mountEl = mainEl.querySelector('#dp-rs-mount');
     const drawerEl = mainEl.querySelector('#dp-rs-drawer');
     const soundBtn = mainEl.querySelector('#dp-rs-sound');
@@ -909,15 +995,7 @@ function startReadSelectPractice(useAi) {
       drawerEl.className = 'det-rs-drawer hidden';
       drawerEl.innerHTML = '';
 
-      let leftSec = durationSec;
       let submitted = false;
-
-      const updateTimerUi = () => {
-        if (!timerEl) return;
-        timerEl.textContent = formatShortTimer(leftSec);
-        timerEl.classList.toggle('urgent', leftSec <= 1);
-      };
-      updateTimerUi();
 
       const handleAnswer = async (overrideAns = undefined, timedOut = false) => {
         if (submitted || aborted) return;
@@ -1015,13 +1093,12 @@ function startReadSelectPractice(useAi) {
         onImmediateSubmit: (val) => handleAnswer(val, false)
       });
 
-      itemTimerId = setInterval(() => {
-        leftSec -= 1;
-        updateTimerUi();
-        if (leftSec <= 0) {
-          handleAnswer(null, true);
-        }
-      }, 1000);
+      itemTimerId = createPrecisionTimer({
+        totalSec: durationSec,
+        urgentSec: 1,
+        onTick: (state) => applyTimerTickUi(timerEl, barEl, state),
+        onExpire: () => handleAnswer(null, true)
+      });
     };
 
     loadWord();
@@ -1097,7 +1174,7 @@ function startFillBlanksPractice(useAi) {
 
   const clearItemTimers = () => {
     if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
-    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (itemTimerId) { itemTimerId.stop?.(); itemTimerId = null; }
     if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
     if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
     if (continueKeyListener) {
@@ -1232,6 +1309,7 @@ function startFillBlanksPractice(useAi) {
               </button>
             </div>
           </div>
+          <div class="det-timer-bar-track"><div id="dp-fb-bar" class="det-timer-bar-fill"></div></div>
         </header>
         <main class="det-fb-stage">
           <div id="dp-fb-mount" style="width:100%;"></div>
@@ -1246,6 +1324,7 @@ function startFillBlanksPractice(useAi) {
     `;
 
     const timerEl = mainEl.querySelector('#dp-fb-timer');
+    const barEl = mainEl.querySelector('#dp-fb-bar');
     const mountEl = mainEl.querySelector('#dp-fb-mount');
     const submitBarEl = mainEl.querySelector('#dp-fb-submit-bar');
     const submitBtnEl = mainEl.querySelector('#dp-fb-submit');
@@ -1309,15 +1388,7 @@ function startFillBlanksPractice(useAi) {
       submitBarEl.classList.remove('hidden');
       submitBtnEl.disabled = true;
 
-      let leftSec = durationSec;
       let submitted = false;
-
-      const updateTimerUi = () => {
-        if (!timerEl) return;
-        timerEl.textContent = formatShortTimer(leftSec);
-        timerEl.classList.toggle('urgent', leftSec <= 3);
-      };
-      updateTimerUi();
 
       const handleAnswer = async (timedOut = false) => {
         if (submitted || aborted) return;
@@ -1450,13 +1521,12 @@ function startFillBlanksPractice(useAi) {
         }
       });
 
-      itemTimerId = setInterval(() => {
-        leftSec -= 1;
-        updateTimerUi();
-        if (leftSec <= 0) {
-          handleAnswer(true);
-        }
-      }, 1000);
+      itemTimerId = createPrecisionTimer({
+        totalSec: durationSec,
+        urgentSec: 3,
+        onTick: (state) => applyTimerTickUi(timerEl, barEl, state),
+        onExpire: () => handleAnswer(true)
+      });
     };
 
     loadItem();
@@ -1511,7 +1581,7 @@ function startReadCompletePractice(useAi) {
 
   const clearItemTimers = () => {
     if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
-    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (itemTimerId) { itemTimerId.stop?.(); itemTimerId = null; }
     if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
     if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
     if (continueKeyListener) {
@@ -1659,6 +1729,7 @@ function startReadCompletePractice(useAi) {
               </button>
             </div>
           </div>
+          <div class="det-timer-bar-track"><div id="dp-rc-bar" class="det-timer-bar-fill"></div></div>
         </header>
         <main class="det-fb-stage">
           <div id="dp-rc-mount" style="width:100%;"></div>
@@ -1673,6 +1744,7 @@ function startReadCompletePractice(useAi) {
     `;
 
     const timerEl = mainEl.querySelector('#dp-rc-timer');
+    const barEl = mainEl.querySelector('#dp-rc-bar');
     const mountEl = mainEl.querySelector('#dp-rc-mount');
     const submitBarEl = mainEl.querySelector('#dp-rc-submit-bar');
     const submitBtnEl = mainEl.querySelector('#dp-rc-submit');
@@ -1736,15 +1808,7 @@ function startReadCompletePractice(useAi) {
       submitBarEl.classList.remove('hidden');
       submitBtnEl.disabled = true;
 
-      let leftSec = durationSec;
       let submitted = false;
-
-      const updateTimerUi = () => {
-        if (!timerEl) return;
-        timerEl.textContent = formatShortTimer(leftSec);
-        timerEl.classList.toggle('urgent', leftSec <= 15);
-      };
-      updateTimerUi();
 
       const handleAnswer = async (timedOut = false) => {
         if (submitted || aborted) return;
@@ -1875,7 +1939,7 @@ function startReadCompletePractice(useAi) {
 
         ctaBtn.addEventListener('click', proceed);
         continueKeyListener = (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if (e.key === 'Enter') {
             e.preventDefault();
             proceed();
           }
@@ -1904,13 +1968,12 @@ function startReadCompletePractice(useAi) {
         }
       });
 
-      itemTimerId = setInterval(() => {
-        leftSec -= 1;
-        updateTimerUi();
-        if (leftSec <= 0) {
-          handleAnswer(true);
-        }
-      }, 1000);
+      itemTimerId = createPrecisionTimer({
+        totalSec: durationSec,
+        urgentSec: 15,
+        onTick: (state) => applyTimerTickUi(timerEl, barEl, state),
+        onExpire: () => handleAnswer(true)
+      });
     };
 
     loadPassage();
@@ -1950,7 +2013,7 @@ function startInteractiveReadingPractice(useAi) {
   let soundOn = loadState().settings.soundEnabled !== false;
   let aborted = false;
   let loaderTimer = null;
-  let sessionTimerId = null;
+  let sessionTimer = null;
   let finishDotsTimer = null;
   let drawerKeyTimer = null;
   let continueKeyListener = null;
@@ -1962,7 +2025,7 @@ function startInteractiveReadingPractice(useAi) {
 
   const clearAllTimers = () => {
     if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
-    if (sessionTimerId) { clearInterval(sessionTimerId); sessionTimerId = null; }
+    if (sessionTimer) { sessionTimer.stop?.(); sessionTimer = null; }
     if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
     if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
     if (continueKeyListener) {
@@ -2018,8 +2081,6 @@ function startInteractiveReadingPractice(useAi) {
     const totalStages = 6;
 
     let stageIdx = 0;
-    let leftSec = durationSec;
-    let timerPaused = false;
     let earnedChecks = 0;
     const recordedChecks = [];
 
@@ -2046,6 +2107,7 @@ function startInteractiveReadingPractice(useAi) {
               </button>
             </div>
           </div>
+          <div class="det-timer-bar-track"><div id="dp-ir-bar" class="det-timer-bar-fill"></div></div>
         </header>
         <main class="det-ir-stage">
           <div id="dp-ir-mount" style="width:100%;"></div>
@@ -2057,6 +2119,7 @@ function startInteractiveReadingPractice(useAi) {
     `;
 
     const timerEl = mainEl.querySelector('#dp-ir-timer');
+    const barEl = mainEl.querySelector('#dp-ir-bar');
     const timerSubEl = mainEl.querySelector('#dp-ir-timer-sub');
     const mountEl = mainEl.querySelector('#dp-ir-mount');
     const submitBarEl = mainEl.querySelector('#dp-ir-submit-bar');
@@ -2071,17 +2134,12 @@ function startInteractiveReadingPractice(useAi) {
       updateSettings({ soundEnabled: soundOn });
     });
 
-    const updateTimerUi = () => {
-      if (timerEl) {
-        timerEl.textContent = formatShortTimer(leftSec);
-        timerEl.classList.toggle('urgent', leftSec <= 30);
-      }
-      if (timerSubEl) {
-        const rem = Math.max(1, totalStages - stageIdx);
-        timerSubEl.innerHTML = rem === 1
-          ? '<span>for this</span><span>question</span>'
-          : `<span>for ${rem}</span><span>questions</span>`;
-      }
+    const syncStageSubLabel = () => {
+      if (!timerSubEl) return;
+      const rem = Math.max(1, totalStages - stageIdx);
+      timerSubEl.innerHTML = rem === 1
+        ? '<span>for this</span><span>question</span>'
+        : `<span>for ${rem}</span><span>questions</span>`;
     };
 
     const renderCompletion = () => {
@@ -2158,14 +2216,15 @@ function startInteractiveReadingPractice(useAi) {
 
     let activeStageSubmit = null;
 
-    sessionTimerId = setInterval(() => {
-      if (aborted || timerPaused) return;
-      leftSec -= 1;
-      updateTimerUi();
-      if (leftSec <= 0 && activeStageSubmit) {
-        activeStageSubmit(true);
-      }
-    }, 1000);
+    sessionTimer = createPrecisionTimer({
+      totalSec: durationSec,
+      urgentSec: 30,
+      onTick: (state) => {
+        applyTimerTickUi(timerEl, barEl, state);
+        syncStageSubLabel();
+      },
+      onExpire: () => activeStageSubmit?.(true)
+    });
 
     const openPassageModal = () => {
       const fullSentences = item.fullSentences || [];
@@ -2280,7 +2339,7 @@ function startInteractiveReadingPractice(useAi) {
         }
         playTapSound(soundOn);
 
-        const finishNow = leftSec <= 0 || stageIdx + 1 >= totalStages;
+        const finishNow = (sessionTimer ? sessionTimer.getRemainingMs() <= 0 : true) || stageIdx + 1 >= totalStages;
         if (finishNow) {
           ctaBtn.disabled = true;
           ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
@@ -2296,7 +2355,7 @@ function startInteractiveReadingPractice(useAi) {
 
       ctaBtn.addEventListener('click', proceed);
       continueKeyListener = (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'Enter') {
           e.preventDefault();
           proceed();
         }
@@ -2323,8 +2382,8 @@ function startInteractiveReadingPractice(useAi) {
       drawerEl.className = 'det-rs-drawer hidden';
       drawerEl.innerHTML = '';
       submitBarEl.classList.remove('hidden');
-      timerPaused = false;
-      updateTimerUi();
+      syncStageSubLabel();
+      sessionTimer?.resume();
 
       const chevDownSvg = `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M5.5 7.5L10 12L14.5 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       let stageSubmitted = false;
@@ -2433,7 +2492,7 @@ function startInteractiveReadingPractice(useAi) {
         const handleSubmit = (timedOut = false) => {
           if (stageSubmitted || aborted) return;
           stageSubmitted = true;
-          timerPaused = true;
+          sessionTimer?.pause();
           activeStageSubmit = null;
           closeMenus();
 
@@ -2550,7 +2609,7 @@ function startInteractiveReadingPractice(useAi) {
         const handleSubmit = (timedOut = false) => {
           if (stageSubmitted || aborted) return;
           stageSubmitted = true;
-          timerPaused = true;
+          sessionTimer?.pause();
           activeStageSubmit = null;
           closeSentMenu();
 
@@ -2711,7 +2770,7 @@ function startInteractiveReadingPractice(useAi) {
         const handleSubmit = (timedOut = false) => {
           if (stageSubmitted || aborted) return;
           stageSubmitted = true;
-          timerPaused = true;
+          sessionTimer?.pause();
           activeStageSubmit = null;
           isDragging = false;
           submitBarEl.classList.add('hidden');
@@ -2725,10 +2784,10 @@ function startInteractiveReadingPractice(useAi) {
           const precision = selectedWords.length ? overlap / selectedWords.length : 0;
 
           let outcome = 'wrong';
-          if (recall >= 0.72 && precision >= 0.62) {
+          if ((recall >= 0.72 && precision >= 0.62) || (precision >= 0.78 && overlap >= 3)) {
             outcome = 'correct';
             earnedChecks += 1;
-          } else if (overlap >= 3 && recall >= 0.35) {
+          } else if (overlap >= 3 && (recall >= 0.30 || precision >= 0.45)) {
             outcome = 'partial';
             earnedChecks += 0.5;
           }
@@ -2803,7 +2862,7 @@ function startInteractiveReadingPractice(useAi) {
         const handleSubmit = (timedOut = false) => {
           if (stageSubmitted || aborted) return;
           stageSubmitted = true;
-          timerPaused = true;
+          sessionTimer?.pause();
           activeStageSubmit = null;
 
           mountEl.querySelectorAll('[data-ir-radio]').forEach((b) => { b.disabled = true; });
