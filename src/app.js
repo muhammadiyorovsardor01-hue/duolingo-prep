@@ -1304,8 +1304,18 @@ function startMistakeDrill() {
     let revealed = false;
     const isListen = card.type === 'listen_type';
     const settings = loadState().settings;
+    let mdAutoTimer = null;
+    let invalidateCardDraw = () => {};
 
     const drawRevealCard = () => {
+      if (mdAutoTimer) {
+        clearTimeout(mdAutoTimer);
+        mdAutoTimer = null;
+      }
+      invalidateCardDraw();
+      let drawDisposed = false;
+      invalidateCardDraw = () => { drawDisposed = true; };
+
       cardEl.innerHTML = `
         <div style="text-align:center;margin-bottom:10px;"><span class="tag">${meta.icon} ${escapeHtml(meta.name)}</span></div>
         ${isListen ? `
@@ -1313,7 +1323,7 @@ function startMistakeDrill() {
           <div class="audio-box" style="margin:14px 0;">
             <div style="display:flex;align-items:center;gap:12px;">
               <button type="button" id="md-play-audio" class="audio-play-btn" style="width:48px;height:48px;font-size:18px;">▶</button>
-              <span style="font-weight:700;font-size:14px;">${lang === 'uz' ? 'Gapni eshitish' : 'Play Sentence Audio'}</span>
+              <span id="md-audio-status" style="font-weight:700;font-size:14px;">${lang === 'uz' ? 'Gapni eshitish' : 'Play Sentence Audio'}</span>
             </div>
             <div id="md-eq" class="eq-bars"><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div></div>
           </div>
@@ -1340,24 +1350,59 @@ function startMistakeDrill() {
 
       if (isListen) {
         const playBtn = cardEl.querySelector('#md-play-audio');
+        const statusEl = cardEl.querySelector('#md-audio-status');
         const eq = cardEl.querySelector('#md-eq');
+        let isPlaying = false;
         const playSentence = () => {
+          if (aborted || drawDisposed || isPlaying) return;
+          isPlaying = true;
+          if (playBtn) playBtn.disabled = true;
+          if (statusEl) statusEl.textContent = lang === 'uz' ? '⏳ Audio yuklanmoqda...' : '⏳ Starting audio...';
+
           speakText(card.correctAnswer || card.prompt, {
             rate: settings.ttsRate || 1.0,
             voiceName: settings.ttsVoice || '',
-            onStart: () => eq?.classList.add('playing'),
-            onEnd: () => eq?.classList.remove('playing'),
-            onError: () => eq?.classList.remove('playing')
+            onStart: () => {
+              if (aborted || drawDisposed) return;
+              eq?.classList.add('playing');
+              if (statusEl) statusEl.textContent = lang === 'uz' ? '🔊 Eshiting...' : '🔊 Playing audio...';
+            },
+            onEnd: () => {
+              if (aborted || drawDisposed) return;
+              isPlaying = false;
+              if (playBtn) playBtn.disabled = false;
+              eq?.classList.remove('playing');
+              if (statusEl) statusEl.textContent = lang === 'uz' ? 'Gapni eshitish' : 'Play Sentence Audio';
+            },
+            onError: () => {
+              if (aborted || drawDisposed) return;
+              isPlaying = false;
+              if (playBtn) playBtn.disabled = false;
+              eq?.classList.remove('playing');
+              if (statusEl) statusEl.textContent = lang === 'uz' ? '👆 Eshitish uchun ▶ tugmasini bosing' : '👆 Click ▶ to play audio';
+            }
           });
         };
-        playBtn?.addEventListener('click', playSentence);
-        if (!revealed) setTimeout(playSentence, 120);
+        playBtn?.addEventListener('click', () => {
+          unlockSpeech();
+          playSentence();
+        });
+        if (!revealed) mdAutoTimer = setTimeout(playSentence, 120);
       }
 
       cardEl.querySelector('#md-reveal-btn')?.addEventListener('click', () => {
         revealed = true;
         drawRevealCard();
       });
+
+      const cleanupAndGo = (fn) => {
+        if (mdAutoTimer) {
+          clearTimeout(mdAutoTimer);
+          mdAutoTimer = null;
+        }
+        invalidateCardDraw();
+        fn();
+      };
 
       const isLast = idx + 1 >= deck.length;
       bottomBar.className = 'det-feedback-bar';
@@ -1370,8 +1415,8 @@ function startMistakeDrill() {
           </div>
         </div>
       `;
-      bottomBar.querySelector('#md-master').addEventListener('click', masterAndAdvance);
-      bottomBar.querySelector('#md-next').addEventListener('click', advance);
+      bottomBar.querySelector('#md-master').addEventListener('click', () => cleanupAndGo(masterAndAdvance));
+      bottomBar.querySelector('#md-next').addEventListener('click', () => cleanupAndGo(advance));
     };
 
     drawRevealCard();
@@ -1524,6 +1569,7 @@ function renderSettingsView() {
   });
 
   mainEl.querySelector('#set-test-voice').addEventListener('click', () => {
+    unlockSpeech();
     speakText('Hello! This is your Duolingo English Test audio voice.', {
       rate: Number(mainEl.querySelector('#set-rate').value),
       voiceName: mainEl.querySelector('#set-voice').value

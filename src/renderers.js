@@ -1,5 +1,5 @@
 import { getSceneById } from './scenes.js';
-import { speakText, stopSpeaking, AudioRecorder } from './speech.js';
+import { speakText, stopSpeaking, unlockSpeech, AudioRecorder } from './speech.js';
 import {
   countWords,
   gradeReadSelect,
@@ -205,6 +205,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
   else if (type === 'listen_type') {
     let playsLeft = 3;
     let isPlaying = false;
+    let disposed = false;
     container.innerHTML = `
       <h3 class="det-q-prompt">Type the statement that you hear</h3>
       <p class="det-q-hint">You can play the audio up to 3 times.</p>
@@ -230,12 +231,13 @@ export function mountQuestionRenderer(container, item, options = {}) {
     const textarea = container.querySelector('#lt-input');
 
     const updatePlaysUi = () => {
+      if (disposed) return;
       playsLabel.innerHTML = `Replays remaining: <strong>${playsLeft}</strong>`;
       playBtn.disabled = playsLeft <= 0 || isPlaying;
     };
 
     const playClip = () => {
-      if (playsLeft <= 0 || isPlaying) return;
+      if (disposed || playsLeft <= 0 || isPlaying) return;
       let consumed = false;
       isPlaying = true;
       statusLabel.textContent = lang === 'uz' ? '⏳ Audio yuklanmoqda...' : '⏳ Starting audio...';
@@ -245,6 +247,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
         rate: settings.ttsRate || 1.0,
         voiceName: settings.ttsVoice || '',
         onStart: () => {
+          if (disposed) return;
           if (!consumed) {
             consumed = true;
             playsLeft = Math.max(0, playsLeft - 1);
@@ -254,12 +257,14 @@ export function mountQuestionRenderer(container, item, options = {}) {
           updatePlaysUi();
         },
         onEnd: () => {
+          if (disposed) return;
           isPlaying = false;
           eq.classList.remove('playing');
           statusLabel.textContent = 'Play Sentence Audio';
           updatePlaysUi();
         },
         onError: () => {
+          if (disposed) return;
           isPlaying = false;
           eq.classList.remove('playing');
           statusLabel.textContent = lang === 'uz' ? '👆 Eshitish uchun ▶ tugmasini bosing' : '👆 Click ▶ to play audio';
@@ -268,10 +273,18 @@ export function mountQuestionRenderer(container, item, options = {}) {
       });
     };
 
-    playBtn.addEventListener('click', playClip);
-    setTimeout(() => textarea.focus(), 60);
-    setTimeout(() => playClip(), 200);
-    registerCleanup(() => stopSpeaking());
+    playBtn.addEventListener('click', () => {
+      unlockSpeech();
+      playClip();
+    });
+    const focusTimer = setTimeout(() => { if (!disposed) textarea.focus(); }, 60);
+    const autoPlayTimer = setTimeout(() => playClip(), 200);
+    registerCleanup(() => {
+      disposed = true;
+      clearTimeout(focusTimer);
+      clearTimeout(autoPlayTimer);
+      stopSpeaking();
+    });
     getAnswer = () => textarea.value;
   }
 
@@ -531,8 +544,18 @@ export function mountQuestionRenderer(container, item, options = {}) {
     const turnChoices = [];
     let summaryText = '';
     let playsCurrent = 0;
+    let disposed = false;
+    let activeAutoTimer = null;
+    let invalidateTurn = () => {};
 
     const renderIL = () => {
+      if (disposed) return;
+      if (activeAutoTimer) {
+        clearTimeout(activeAutoTimer);
+        activeAutoTimer = null;
+      }
+      invalidateTurn();
+
       const turns = item.turns || [];
       const inSummary = turnIdx >= turns.length;
 
@@ -586,15 +609,18 @@ export function mountQuestionRenderer(container, item, options = {}) {
         const playsEl = container.querySelector('#il-plays');
         const eq = container.querySelector('#il-eq');
         let isTurnPlaying = false;
+        let turnDisposed = false;
+        invalidateTurn = () => { turnDisposed = true; };
 
         const syncTurnUi = () => {
+          if (disposed || turnDisposed) return;
           const left = Math.max(0, 2 - playsCurrent);
           playsEl.innerHTML = `Replays: <strong>${left}</strong>`;
           playBtn.disabled = left <= 0 || isTurnPlaying;
         };
 
         const playTurn = () => {
-          if (playsCurrent >= 2 || isTurnPlaying) return;
+          if (disposed || turnDisposed || playsCurrent >= 2 || isTurnPlaying) return;
           let consumed = false;
           isTurnPlaying = true;
           statusEl.textContent = lang === 'uz' ? '⏳ Audio yuklanmoqda...' : '⏳ Starting audio...';
@@ -604,6 +630,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
             rate: settings.ttsRate || 1.0,
             voiceName: settings.ttsVoice || '',
             onStart: () => {
+              if (disposed || turnDisposed) return;
               if (!consumed) {
                 consumed = true;
                 playsCurrent += 1;
@@ -613,12 +640,14 @@ export function mountQuestionRenderer(container, item, options = {}) {
               syncTurnUi();
             },
             onEnd: () => {
+              if (disposed || turnDisposed) return;
               isTurnPlaying = false;
               eq.classList.remove('playing');
               statusEl.textContent = lang === 'uz' ? 'Suhbatdosh gapini eshitish' : 'Play conversation turn';
               syncTurnUi();
             },
             onError: () => {
+              if (disposed || turnDisposed) return;
               isTurnPlaying = false;
               eq.classList.remove('playing');
               statusEl.textContent = lang === 'uz' ? '👆 Eshitish uchun ▶ tugmasini bosing' : '👆 Click ▶ to play audio';
@@ -626,11 +655,20 @@ export function mountQuestionRenderer(container, item, options = {}) {
             }
           });
         };
-        playBtn.addEventListener('click', playTurn);
-        setTimeout(() => playTurn(), 160);
+        playBtn.addEventListener('click', () => {
+          unlockSpeech();
+          playTurn();
+        });
+        activeAutoTimer = setTimeout(() => playTurn(), 160);
 
         container.querySelectorAll('[data-il-opt]').forEach((btn) => {
           btn.addEventListener('click', () => {
+            turnDisposed = true;
+            if (activeAutoTimer) {
+              clearTimeout(activeAutoTimer);
+              activeAutoTimer = null;
+            }
+            unlockSpeech();
             stopSpeaking();
             turnChoices[turnIdx] = currentTurn.options[Number(btn.dataset.ilOpt)];
             turnIdx += 1;
@@ -639,6 +677,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
           });
         });
       } else {
+        invalidateTurn = () => {};
         container.innerHTML = `
           <span class="tag tag-writing">Final Step — Summarize (75s)</span>
           <h3 class="det-q-prompt" style="margin-top:8px;">Summarize the Conversation</h3>
@@ -653,12 +692,20 @@ export function mountQuestionRenderer(container, item, options = {}) {
           summaryText = ta.value;
           wc.textContent = `${countWords(summaryText)} words`;
         });
-        setTimeout(() => ta.focus(), 40);
+        setTimeout(() => { if (!disposed) ta.focus(); }, 40);
       }
     };
 
     renderIL();
-    registerCleanup(() => stopSpeaking());
+    registerCleanup(() => {
+      disposed = true;
+      invalidateTurn();
+      if (activeAutoTimer) {
+        clearTimeout(activeAutoTimer);
+        activeAutoTimer = null;
+      }
+      stopSpeaking();
+    });
     getAnswer = () => ({ turnChoices, summaryText });
   }
 

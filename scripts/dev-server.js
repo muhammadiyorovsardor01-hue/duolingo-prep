@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const ttsHandler = require('../api/tts');
 
 const PORT = Number(process.env.PORT) || 4173;
 const ROOT = path.resolve(__dirname, '..');
@@ -16,8 +17,13 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=utf-8'
 };
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
+  if (urlPath === '/api/tts') {
+    await ttsHandler(req, res);
+    return;
+  }
+
   let safeRelPath = decodeURIComponent(urlPath);
   if (safeRelPath === '/') {
     safeRelPath = '/index.html';

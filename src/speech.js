@@ -3,6 +3,13 @@ let speakToken = 0;
 let pendingSpeakTimer = null;
 let startWatchdogTimer = null;
 
+let sharedAudio = null;
+let activeAbortController = null;
+const ttsBlobCache = new Map();
+const MAX_TTS_CACHE = 40;
+const SERVER_TTS_TIMEOUT_MS = 6000;
+const SILENT_WAV_DATA_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 function clearTimers() {
   if (pendingSpeakTimer) {
     clearTimeout(pendingSpeakTimer);
@@ -14,6 +21,32 @@ function clearTimers() {
   }
 }
 
+function detachAudioHandlers(audioEl) {
+  if (!audioEl) return;
+  audioEl.onplaying = null;
+  audioEl.onended = null;
+  audioEl.onerror = null;
+}
+
+function cacheBlobUrl(textKey, blobUrl) {
+  if (ttsBlobCache.has(textKey)) {
+    const oldUrl = ttsBlobCache.get(textKey);
+    ttsBlobCache.delete(textKey);
+    if (oldUrl && oldUrl !== blobUrl) {
+      try { URL.revokeObjectURL(oldUrl); } catch {}
+    }
+  }
+  while (ttsBlobCache.size >= MAX_TTS_CACHE) {
+    const oldestKey = ttsBlobCache.keys().next().value;
+    const oldestUrl = ttsBlobCache.get(oldestKey);
+    ttsBlobCache.delete(oldestKey);
+    if (oldestUrl) {
+      try { URL.revokeObjectURL(oldestUrl); } catch {}
+    }
+  }
+  ttsBlobCache.set(textKey, blobUrl);
+}
+
 export function getEnglishVoices() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return [];
@@ -23,20 +56,28 @@ export function getEnglishVoices() {
 }
 
 export function unlockSpeech() {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  if (typeof window === 'undefined') return;
   try {
-    const synth = window.speechSynthesis;
-    synth.getVoices();
-    if (synth.paused) {
-      synth.resume();
+    if ('speechSynthesis' in window) {
+      const synth = window.speechSynthesis;
+      synth.getVoices();
+      if (synth.paused) {
+        synth.resume();
+      }
     }
-    // Silent warm-up utterance inside user gesture so subsequent async turns stay unlocked
-    if (!synth.speaking && !synth.pending) {
-      const warm = new SpeechSynthesisUtterance(' ');
-      warm.lang = 'en-US';
-      warm.volume = 0;
-      warm.rate = 2;
-      synth.speak(warm);
+  } catch {}
+
+  try {
+    if (typeof Audio !== 'undefined') {
+      sharedAudio = sharedAudio || new Audio();
+      if (sharedAudio.paused && !sharedAudio.currentSrc) {
+        sharedAudio.volume = 0;
+        sharedAudio.src = SILENT_WAV_DATA_URI;
+        const p = sharedAudio.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+      }
     }
   } catch {}
 }
@@ -45,6 +86,17 @@ export function stopSpeaking() {
   speakToken += 1;
   clearTimers();
   activeUtterance = null;
+
+  if (activeAbortController) {
+    try { activeAbortController.abort(); } catch {}
+    activeAbortController = null;
+  }
+
+  if (sharedAudio) {
+    detachAudioHandlers(sharedAudio);
+    try { sharedAudio.pause(); } catch {}
+  }
+
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.cancel();
@@ -69,105 +121,211 @@ function selectReliableVoice(voiceName) {
 }
 
 export function speakText(text, { rate = 1.0, voiceName = '', onStart, onEnd, onError } = {}) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    onError?.('Speech synthesis is not supported in this browser.');
+  if (typeof window === 'undefined') {
+    onError?.('Audio playback requires a browser environment.');
     return;
   }
-  const cleanText = String(text || '').trim();
+
+  const cleanText = String(text || '').replace(/\s+/g, ' ').trim();
   if (!cleanText) {
     onError?.('Empty audio text');
     return;
   }
 
-  const synth = window.speechSynthesis;
-  const wasBusy = synth.speaking || synth.pending;
-
-  speakToken += 1;
+  stopSpeaking();
   const myToken = speakToken;
-  clearTimers();
-  activeUtterance = null;
+  const clampedRate = Math.max(0.7, Math.min(1.4, Number(rate) || 1.0));
 
-  if (wasBusy) {
-    try {
-      synth.cancel();
-    } catch {}
-  }
-
-  const launchUtterance = (useSystemDefault = false) => {
+  const playViaSpeechSynthesis = () => {
     if (myToken !== speakToken) return;
-    const utter = new SpeechSynthesisUtterance(cleanText);
-    utter.lang = 'en-US';
-    utter.rate = Math.max(0.7, Math.min(1.4, Number(rate) || 1.0));
-    utter.volume = 1.0;
-
-    if (!useSystemDefault) {
-      const chosen = selectReliableVoice(voiceName);
-      if (chosen) utter.voice = chosen;
-    }
-
-    let started = false;
-    activeUtterance = utter;
-
-    utter.onstart = () => {
-      if (myToken !== speakToken) return;
-      started = true;
-      if (startWatchdogTimer) {
-        clearTimeout(startWatchdogTimer);
-        startWatchdogTimer = null;
-      }
-      onStart?.();
-    };
-
-    utter.onend = () => {
-      if (myToken !== speakToken) return;
-      clearTimers();
-      activeUtterance = null;
-      onEnd?.();
-    };
-
-    utter.onerror = (ev) => {
-      if (myToken !== speakToken) return;
-      if (ev?.error === 'interrupted' || ev?.error === 'canceled') return;
-      clearTimers();
-      activeUtterance = null;
-      if (!useSystemDefault && !started) {
-        launchUtterance(true);
-        return;
-      }
-      onError?.(ev?.error || 'Audio playback error');
-    };
-
-    try {
-      if (synth.paused) synth.resume();
-      synth.speak(utter);
-      if (synth.paused) synth.resume();
-    } catch (err) {
-      activeUtterance = null;
-      onError?.(err?.message || 'Speech playback failed');
+    if (!('speechSynthesis' in window)) {
+      onError?.('Audio playback is unavailable in this browser.');
       return;
     }
 
-    // Watchdog: if onstart never fires within 1200ms, retry once with default OS voice then report blocked
-    startWatchdogTimer = setTimeout(() => {
-      if (myToken !== speakToken || started) return;
-      try {
-        synth.cancel();
-      } catch {}
-      activeUtterance = null;
+    const synth = window.speechSynthesis;
+    const wasBusy = synth.speaking || synth.pending;
+    if (wasBusy) {
+      try { synth.cancel(); } catch {}
+    }
+
+    const launchUtterance = (useSystemDefault = false) => {
+      if (myToken !== speakToken) return;
+      const utter = new SpeechSynthesisUtterance(cleanText);
+      utter.lang = 'en-US';
+      utter.rate = clampedRate;
+      utter.volume = 1.0;
+
       if (!useSystemDefault) {
-        pendingSpeakTimer = setTimeout(() => launchUtterance(true), 60);
-      } else {
-        onError?.('playback_blocked');
+        const chosen = selectReliableVoice(voiceName);
+        if (chosen) utter.voice = chosen;
       }
-    }, 1200);
+
+      let started = false;
+      let settled = false;
+      activeUtterance = utter;
+
+      utter.onstart = () => {
+        if (myToken !== speakToken || settled) return;
+        started = true;
+        if (startWatchdogTimer) {
+          clearTimeout(startWatchdogTimer);
+          startWatchdogTimer = null;
+        }
+        onStart?.();
+      };
+
+      utter.onend = () => {
+        if (myToken !== speakToken || settled) return;
+        settled = true;
+        clearTimers();
+        activeUtterance = null;
+        onEnd?.();
+      };
+
+      utter.onerror = (ev) => {
+        if (myToken !== speakToken || settled) return;
+        settled = true;
+        clearTimers();
+        activeUtterance = null;
+        if (!useSystemDefault && !started) {
+          pendingSpeakTimer = setTimeout(() => launchUtterance(true), 60);
+          return;
+        }
+        onError?.(ev?.error || 'Audio playback error');
+      };
+
+      try {
+        if (synth.paused) synth.resume();
+        synth.speak(utter);
+        if (synth.paused) synth.resume();
+      } catch (err) {
+        settled = true;
+        activeUtterance = null;
+        onError?.(err?.message || 'Speech playback failed');
+        return;
+      }
+
+      // Watchdog: if onstart never fires within 1500ms, retry once with default OS voice then report blocked
+      startWatchdogTimer = setTimeout(() => {
+        if (myToken !== speakToken || started || settled) return;
+        settled = true;
+        try { synth.cancel(); } catch {}
+        activeUtterance = null;
+        if (!useSystemDefault) {
+          pendingSpeakTimer = setTimeout(() => launchUtterance(true), 60);
+        } else {
+          onError?.('playback_blocked');
+        }
+      }, 1500);
+    };
+
+    if (wasBusy) {
+      pendingSpeakTimer = setTimeout(() => launchUtterance(false), 60);
+    } else {
+      launchUtterance(false);
+    }
   };
 
-  if (wasBusy) {
-    // 60ms delay prevents Chromium cancel() from dropping the newly queued utterance
-    pendingSpeakTimer = setTimeout(() => launchUtterance(false), 60);
-  } else {
-    launchUtterance(false);
-  }
+  const playViaServerTts = async () => {
+    if (typeof Audio === 'undefined' || typeof fetch === 'undefined') {
+      playViaSpeechSynthesis();
+      return;
+    }
+
+    let blobUrl = ttsBlobCache.get(cleanText) || '';
+
+    if (!blobUrl) {
+      const controller = new AbortController();
+      activeAbortController = controller;
+      const fetchTimer = setTimeout(() => controller.abort(), SERVER_TTS_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(`/api/tts?q=${encodeURIComponent(cleanText)}`, {
+          method: 'GET',
+          signal: controller.signal
+        });
+        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+        if (!res.ok || !contentType.includes('audio')) {
+          throw new Error(`Invalid TTS response (${res.status} ${contentType})`);
+        }
+        const blob = await res.blob();
+        if (!blob || blob.size <= 100) {
+          throw new Error('TTS returned empty audio blob');
+        }
+        blobUrl = URL.createObjectURL(blob);
+        cacheBlobUrl(cleanText, blobUrl);
+      } catch {
+        clearTimeout(fetchTimer);
+        if (activeAbortController === controller) {
+          activeAbortController = null;
+        }
+        if (myToken !== speakToken) return;
+        playViaSpeechSynthesis();
+        return;
+      } finally {
+        clearTimeout(fetchTimer);
+        if (activeAbortController === controller) {
+          activeAbortController = null;
+        }
+      }
+    }
+
+    if (myToken !== speakToken) return;
+
+    sharedAudio = sharedAudio || new Audio();
+    detachAudioHandlers(sharedAudio);
+
+    let started = false;
+    let finished = false;
+
+    sharedAudio.volume = 1.0;
+    sharedAudio.src = blobUrl;
+    sharedAudio.playbackRate = clampedRate;
+
+    sharedAudio.onplaying = () => {
+      if (myToken !== speakToken || started || finished) return;
+      started = true;
+      sharedAudio.playbackRate = clampedRate;
+      onStart?.();
+    };
+
+    sharedAudio.onended = () => {
+      if (myToken !== speakToken || finished) return;
+      finished = true;
+      detachAudioHandlers(sharedAudio);
+      onEnd?.();
+    };
+
+    sharedAudio.onerror = () => {
+      if (myToken !== speakToken || finished) return;
+      finished = true;
+      detachAudioHandlers(sharedAudio);
+      if (!started) {
+        playViaSpeechSynthesis();
+      } else {
+        onError?.('audio_error');
+      }
+    };
+
+    try {
+      const playPromise = sharedAudio.play();
+      if (playPromise && typeof playPromise.then === 'function') {
+        await playPromise;
+      }
+    } catch (err) {
+      if (myToken !== speakToken || finished) return;
+      finished = true;
+      detachAudioHandlers(sharedAudio);
+      if (err?.name === 'NotAllowedError') {
+        onError?.('autoplay_blocked');
+        return;
+      }
+      playViaSpeechSynthesis();
+    }
+  };
+
+  playViaServerTts();
 }
 
 function blobToBase64(blob) {
