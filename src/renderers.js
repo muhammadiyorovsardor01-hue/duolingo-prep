@@ -60,12 +60,6 @@ export function applyObjectiveReviewVisuals(container, item, result) {
     const btns = Array.from(container.querySelectorAll('[data-rs]'));
     btns.forEach((btn) => {
       btn.disabled = true;
-      const btnIsReal = btn.dataset.rs === 'true';
-      if (btnIsReal === Boolean(item.isReal)) {
-        btn.classList.add('correct');
-      } else if (btn.classList.contains('selected') && !result.correct) {
-        btn.classList.add('wrong');
-      }
     });
   } else if (item.type === 'fill_blanks') {
     const expected = String(item.missing || '').toLowerCase();
@@ -110,14 +104,23 @@ export function mountQuestionRenderer(container, item, options = {}) {
     let selected = null;
     let locked = false;
     container.innerHTML = `
-      <h3 class="det-q-prompt">Is this a real English word?</h3>
-      <p class="det-q-hint">Select YES or NO (keys: Y / N)</p>
-      <div class="word-showcase">
-        <div class="word-showcase-text">${escapeHtml(item.word)}</div>
-      </div>
-      <div class="yes-no-row">
-        <button type="button" class="choice-tile" data-rs="true">✓ YES</button>
-        <button type="button" class="choice-tile" data-rs="false">✕ NO</button>
+      <div class="det-rs-wrap">
+        <h3 class="det-rs-prompt">Is this a real English word?</h3>
+        <div class="det-rs-word">${escapeHtml(item.word)}</div>
+        <div class="det-rs-grid">
+          <button type="button" class="det-rs-card" data-rs="true" aria-label="Yes">
+            <svg width="38" height="38" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+              <path d="M7.5 18.5L14.5 25.5L28.5 10.5" stroke="#1CB0F6" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="det-rs-label">Yes</span>
+          </button>
+          <button type="button" class="det-rs-card" data-rs="false" aria-label="No">
+            <svg width="34" height="34" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+              <path d="M9.5 9.5L26.5 26.5M26.5 9.5L9.5 26.5" stroke="#1CB0F6" stroke-width="4.8" stroke-linecap="round"/>
+            </svg>
+            <span class="det-rs-label">No</span>
+          </button>
+        </div>
       </div>
     `;
     const btns = Array.from(container.querySelectorAll('[data-rs]'));

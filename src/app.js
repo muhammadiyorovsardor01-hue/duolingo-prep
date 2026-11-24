@@ -27,7 +27,7 @@ import {
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText, stopSpeaking, unlockSpeech } from './speech.js';
-import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound } from './sounds.js';
+import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound } from './sounds.js';
 import {
   mountQuestionRenderer,
   applyObjectiveReviewVisuals,
@@ -370,25 +370,186 @@ function renderMockHome() {
   });
 }
 
+function getHeroLaptopSvg() {
+  return `
+    <svg width="116" height="72" viewBox="0 0 116 72" fill="none" aria-hidden="true">
+      <rect x="20" y="8" width="76" height="48" rx="6" fill="#E5E9F0" stroke="#B8C4D4" stroke-width="2"/>
+      <rect x="25" y="13" width="66" height="38" rx="3" fill="#FFFFFF"/>
+      <rect x="33" y="21" width="34" height="14" rx="4" fill="#1CB0F6"/>
+      <path d="M40 35L35 41V35H40Z" fill="#1CB0F6"/>
+      <rect x="38" y="26" width="22" height="4" rx="2" fill="#FFFFFF"/>
+      <circle cx="77" cy="31" r="8" fill="#FFF0E0" stroke="#FF9600" stroke-width="2.2"/>
+      <path d="M77 27V31.5L80 33.5" stroke="#FF9600" stroke-width="2" stroke-linecap="round"/>
+      <path d="M10 56H106L110 62C110 63.6569 108.657 65 107 65H9C7.34315 65 6 63.6569 6 62L10 56Z" fill="#D5DCE6"/>
+      <rect x="46" y="58" width="24" height="3" rx="1.5" fill="#B0BAC8"/>
+    </svg>
+  `;
+}
+
+function getSkillIconSvg(typeId) {
+  if (typeId === 'read_select') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="7" y="11" width="23" height="23" rx="6" transform="rotate(-8 7 11)" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.5"/>
+        <path d="M13 21.5L17.5 25.5L25.5 16.5" stroke="#1CB0F6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="22" y="17" width="23" height="23" rx="6" transform="rotate(8 22 17)" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.5"/>
+        <path d="M27.5 25L35.5 33M35.5 25L27.5 33" stroke="#1CB0F6" stroke-width="3.2" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'fill_blanks') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="5" y="18" width="12" height="16" rx="4" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="20" y="18" width="12" height="16" rx="4" fill="#1CB0F6" stroke="#1899D6" stroke-width="2"/>
+        <rect x="35" y="18" width="12" height="16" rx="4" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'read_complete') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="7" y="11" width="38" height="30" rx="7" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.5"/>
+        <rect x="13" y="19" width="10" height="4" rx="2" fill="#D4D8DF"/>
+        <rect x="26" y="18.5" width="13" height="5" rx="2.5" fill="#1CB0F6"/>
+        <rect x="13" y="29" width="15" height="4" rx="2" fill="#D4D8DF"/>
+        <rect x="31" y="29" width="8" height="4" rx="2" fill="#D4D8DF"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'interactive_reading') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="12" y="8" width="28" height="32" rx="6" fill="#F4F5F7" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="8" y="13" width="28" height="31" rx="6" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="14" y="20" width="16" height="3.5" rx="1.75" fill="#FF9600"/>
+        <rect x="14" y="27" width="12" height="3.5" rx="1.75" fill="#D4D8DF"/>
+        <rect x="14" y="34" width="14" height="3.5" rx="1.75" fill="#D4D8DF"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'listen_type' || typeId === 'interactive_listening') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="8" y="10" width="32" height="28" rx="7" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.5"/>
+        <path d="M16 21H20L26 16V32L20 27H16V21Z" fill="#1CB0F6"/>
+        <path d="M29.5 19.5C31.5 21.5 31.5 26.5 29.5 28.5" stroke="#1CB0F6" stroke-width="2.5" stroke-linecap="round"/>
+        <rect x="28" y="32" width="16" height="10" rx="4" fill="#58CC02"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'write_photo' || typeId === 'speak_photo') {
+    const badgeColor = typeId === 'speak_photo' ? '#FF9600' : '#1CB0F6';
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="7" y="11" width="36" height="28" rx="7" fill="#DDF4FF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <circle cx="17" cy="20" r="3.5" fill="#FFC800"/>
+        <path d="M10 35L19 25L27 32L32 27L40 35H10Z" fill="#58CC02"/>
+        <circle cx="38" cy="36" r="7" fill="${badgeColor}"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'writing_sample' || typeId === 'interactive_writing') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="7" y="11" width="38" height="30" rx="7" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="13" y="19" width="22" height="4" rx="2" fill="#1CB0F6"/>
+        <rect x="13" y="27" width="16" height="4" rx="2" fill="#D4D8DF"/>
+        <circle cx="38" cy="35" r="6" fill="#58CC02"/>
+      </svg>
+    `;
+  }
+  return `
+    <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+      <rect x="8" y="10" width="36" height="30" rx="8" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+      <rect x="23" y="16" width="6" height="12" rx="3" fill="#1CB0F6"/>
+      <path d="M18 25C18 28.866 21.134 32 25 32H27C30.866 32 34 28.866 34 25" stroke="#1CB0F6" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M26 32V36" stroke="#1CB0F6" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
+function getOwlLoaderHtml() {
+  return `
+    <div class="det-rs-loader">
+      <div class="det-rs-owl-stage">
+        <svg class="det-rs-owl" width="84" height="76" viewBox="0 0 84 76" fill="none" aria-hidden="true">
+          <path d="M18 24C14 14 22 10 29 15C34 12 49 12 55 15C62 10 70 14 66 24C72 31 73 45 67 56C61 65 49 69 42 69C35 69 23 65 17 56C11 45 12 31 18 24Z" fill="#58CC02"/>
+          <ellipse cx="42" cy="52" rx="17" ry="13" fill="#89E219"/>
+          <circle cx="31" cy="33" r="10.5" fill="#FFFFFF"/>
+          <circle cx="53" cy="33" r="10.5" fill="#FFFFFF"/>
+          <circle cx="32.5" cy="33" r="5" fill="#3C3C3C"/>
+          <circle cx="51.5" cy="33" r="5" fill="#3C3C3C"/>
+          <circle cx="34" cy="31" r="1.8" fill="#FFFFFF"/>
+          <circle cx="53" cy="31" r="1.8" fill="#FFFFFF"/>
+          <path d="M37 40C37 37.5 47 37.5 47 40C47 43 43.5 46 42 46C40.5 46 37 43 37 40Z" fill="#FFC800"/>
+          <rect x="27" y="66" width="11" height="5" rx="2.5" fill="#FF9600"/>
+          <rect x="46" y="66" width="11" height="5" rx="2.5" fill="#FF9600"/>
+        </svg>
+        <svg class="det-rs-note-1" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <path d="M7 13V4L15 2.5V11" stroke="#1CB0F6" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="5" cy="13.5" r="2.5" fill="#1CB0F6"/>
+          <circle cx="13" cy="11.5" r="2.5" fill="#1CB0F6"/>
+        </svg>
+        <svg class="det-rs-note-2" width="13" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M6 10.5V3L11 2" stroke="#1CB0F6" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="4.5" cy="11" r="2.2" fill="#1CB0F6"/>
+        </svg>
+      </div>
+      <div class="det-rs-loader-text">LOADING...</div>
+    </div>
+  `;
+}
+
+function getCompleteCardsSvg() {
+  return `
+    <svg width="116" height="96" viewBox="0 0 116 96" fill="none" aria-hidden="true">
+      <rect x="14" y="14" width="44" height="44" rx="11" transform="rotate(-11 14 14)" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="3"/>
+      <path d="M26 34.5L34.5 42.5L49 26" stroke="#1CB0F6" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="54" y="34" width="44" height="44" rx="11" transform="rotate(10 54 34)" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="3"/>
+      <path d="M65.5 47.5L80.5 62.5M80.5 47.5L65.5 62.5" stroke="#1CB0F6" stroke-width="5.2" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
+function formatShortTimer(sec) {
+  const safe = Math.max(0, Math.floor(sec));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 // 3. SKILL PRACTICE HUB & DRILL VIEW
 function renderPracticeHub() {
   const state = loadState();
   const lang = state.settings.uiLang || 'uz';
   const hasKey = Boolean(String(state.settings.apiKey || '').trim());
 
+  const tabs = [
+    { id: 'all', label: 'ALL' },
+    { id: 'speaking', label: 'SPEAKING' },
+    { id: 'writing', label: 'WRITING' },
+    { id: 'reading', label: 'READING' },
+    { id: 'listening', label: 'LISTENING' }
+  ];
+
   const filtered = QUESTION_TYPES.filter((qt) =>
     practiceFilter === 'all' ? true : qt.skills.includes(practiceFilter)
   );
 
   mainEl.innerHTML = `
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">${escapeHtml(t(lang, 'practiceTitle'))}</h1>
-        <p class="page-subtitle">${escapeHtml(t(lang, 'practiceSub'))}</p>
+    <div class="det-hub-wrap">
+      <div class="det-hub-hero">
+        <div class="det-hub-hero-top">
+          <h1 class="det-hub-hero-title">Take a full length<br/>practice test</h1>
+          <div class="det-hub-hero-illus">${getHeroLaptopSvg()}</div>
+        </div>
+        <button type="button" id="hub-free-test" class="det-btn-blue">PRACTICE FREE</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:13px;font-weight:700;color:var(--ink-muted);">${escapeHtml(t(lang, 'difficultyLabel'))}</span>
-        <select id="prac-diff" class="det-input" style="width:auto;padding:7px 12px;">
+
+      <div class="det-hub-section-head">
+        <h2 class="det-hub-section-title">Practice skills</h2>
+        <select id="prac-diff" class="det-hub-diff-select" aria-label="Difficulty">
           <option value="adaptive" ${practiceDifficulty === 'adaptive' ? 'selected' : ''}>${escapeHtml(t(lang, 'adaptiveDiff'))}</option>
           <option value="1" ${practiceDifficulty === '1' ? 'selected' : ''}>Level 1 (B1)</option>
           <option value="2" ${practiceDifficulty === '2' ? 'selected' : ''}>Level 2 (B1+/B2)</option>
@@ -397,47 +558,43 @@ function renderPracticeHub() {
           <option value="5" ${practiceDifficulty === '5' ? 'selected' : ''}>Level 5 (C2)</option>
         </select>
       </div>
-    </div>
 
-    <div class="filter-pills">
-      ${['all', 'reading', 'writing', 'listening', 'speaking'].map((f) => `
-        <button type="button" class="filter-pill ${practiceFilter === f ? 'active' : ''}" data-filter="${f}">
-          ${f === 'all' ? t(lang, 'filterAll') : f.charAt(0).toUpperCase() + f.slice(1)}
-        </button>
-      `).join('')}
-    </div>
+      <div class="det-hub-tabs" role="tablist">
+        ${tabs.map((tab) => `
+          <button type="button" role="tab" class="det-hub-tab ${practiceFilter === tab.id ? 'active' : ''}" data-filter="${tab.id}">
+            ${tab.label}
+          </button>
+        `).join('')}
+      </div>
 
-    <div class="grid-3">
-      ${filtered.map((qt) => {
-        const stats = state.practiceStats[qt.id];
-        const durLabel = qt.durationSec >= 60 ? `${Math.round(qt.durationSec / 60)} min` : `${qt.durationSec}s`;
-        return `
-          <div class="card practice-card">
-            <div>
-              <div class="practice-card-top">
-                <div class="practice-icon">${qt.icon}</div>
-                <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
-                  ${qt.skills.map((s) => `<span class="tag tag-${s}">${s}</span>`).join('')}
+      <div class="det-hub-list">
+        ${filtered.map((qt) => {
+          const stats = state.practiceStats[qt.id];
+          const progressCount = Math.min(6, Number(stats?.attempts || 0));
+          const progressPct = Math.round((progressCount / 6) * 100);
+          return `
+            <div class="det-skill-card" role="button" tabindex="0" data-run-bank="${qt.id}">
+              <div class="det-skill-icon">${getSkillIconSvg(qt.id)}</div>
+              <div class="det-skill-body">
+                <div class="det-skill-title-row">
+                  <div class="det-skill-title">${escapeHtml(qt.name)}</div>
+                  ${qt.aiGeneratable && hasKey ? `<button type="button" class="det-skill-ai-btn" data-run-ai="${qt.id}">✨ AI</button>` : ''}
+                </div>
+                <div class="det-skill-prog-row">
+                  <div class="det-skill-track">
+                    <div class="det-skill-fill" style="width:${progressPct}%"></div>
+                  </div>
+                  <span class="det-skill-count">${progressCount}/6</span>
                 </div>
               </div>
-              <h3 class="practice-title">${escapeHtml(qt.name)}</h3>
-              <p class="practice-desc">${escapeHtml(lang === 'uz' ? qt.descUz : qt.descEn)}</p>
             </div>
-            <div>
-              <div class="practice-meta">
-                <span>⏱ ${qt.prepSec ? `${qt.prepSec}s + ` : ''}${durLabel} · ${qt.sessionLength || 1} ${lang === 'uz' ? 'savol' : ((qt.sessionLength || 1) === 1 ? 'task' : 'items')}</span>
-                <span>${stats ? `${stats.attempts} runs · avg ${stats.avgScore}` : (lang === 'uz' ? 'Yechilmagan' : 'Not practiced')}</span>
-              </div>
-              <div class="practice-actions" style="margin-top:12px;">
-                <button type="button" class="btn btn-primary btn-sm" data-run-bank="${qt.id}">${escapeHtml(t(lang, 'btnPracticeBank'))}</button>
-                ${qt.aiGeneratable && hasKey ? `<button type="button" class="btn btn-soft btn-sm" data-run-ai="${qt.id}">✨ ${escapeHtml(t(lang, 'btnPracticeAi'))}</button>` : ''}
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('')}
+          `;
+        }).join('')}
+      </div>
     </div>
   `;
+
+  mainEl.querySelector('#hub-free-test').addEventListener('click', () => navigate('mock'));
 
   mainEl.querySelector('#prac-diff').addEventListener('change', (e) => {
     practiceDifficulty = e.target.value;
@@ -450,12 +607,20 @@ function renderPracticeHub() {
     });
   });
 
-  mainEl.querySelectorAll('[data-run-bank]').forEach((btn) => {
-    btn.addEventListener('click', () => startPracticeSession(btn.dataset.runBank, false));
+  mainEl.querySelectorAll('[data-run-bank]').forEach((card) => {
+    const launch = () => startPracticeSession(card.dataset.runBank, false);
+    card.addEventListener('click', launch);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        launch();
+      }
+    });
   });
 
   mainEl.querySelectorAll('[data-run-ai]').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       if (!hasKey) {
         showToast(lang === 'uz' ? 'Avval Sozlamalardan Gemini API kalitini kiriting.' : 'Please add your Gemini API key in Settings first.', 'error');
         navigate('settings');
@@ -487,8 +652,376 @@ function getObjectiveFeedbackDetail(item, result) {
   return result.expected || '';
 }
 
+function startReadSelectPractice(useAi) {
+  const meta = getQuestionTypeMeta('read_select');
+  const totalItems = meta.sessionLength || 15;
+  const durationSec = meta.durationSec || 5;
+  const sessionStartedAt = Date.now();
+  const usedIds = new Set();
+  const seenIds = getSeenIds('read_select');
+  const maxKeep = Math.max(1, getBankCapacity('read_select') - 1);
+  const sessionResults = [];
+
+  const realCount = Math.random() < 0.5 ? Math.floor(totalItems / 2) : Math.ceil(totalItems / 2);
+  const polaritySchedule = shuffleArray([
+    ...new Array(realCount).fill(true),
+    ...new Array(totalItems - realCount).fill(false)
+  ]);
+
+  let currentIndex = 0;
+  let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let soundOn = loadState().settings.soundEnabled !== false;
+  let aborted = false;
+  let loaderTimer = null;
+  let itemTimerId = null;
+  let finishDotsTimer = null;
+  let activeRenderer = null;
+  let continueKeyListener = null;
+  let batchQueue = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
+
+  const clearItemTimers = () => {
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
+    if (continueKeyListener) {
+      document.removeEventListener('keydown', continueKeyListener);
+      continueKeyListener = null;
+    }
+  };
+
+  practiceCleanup = () => {
+    aborted = true;
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+  };
+
+  mainEl.innerHTML = getOwlLoaderHtml();
+
+  const renderCompletion = () => {
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+    if (aborted) return;
+
+    const totalSec = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+    const avgPct = sessionResults.length
+      ? Math.round(sessionResults.reduce((s, r) => s + r.result.pctScore, 0) / sessionResults.length)
+      : 0;
+    const correctCount = sessionResults.filter((r) => r.result.correct).length;
+    const sessionDetScore = estimateAbilityIRT(sessionResults.map((r) => ({
+      type: 'read_select',
+      difficulty: r.item.difficulty || 3,
+      pctScore: r.result.pctScore
+    })));
+    const rangeLow = Math.max(10, sessionDetScore - 5);
+    const rangeHigh = Math.min(160, sessionDetScore + 5);
+
+    if (sessionResults.length > 0) {
+      recordPracticeAttempt({
+        type: 'read_select',
+        detScore: sessionDetScore,
+        pctScore: avgPct,
+        timeSec: totalSec
+      });
+      syncChrome();
+    }
+
+    playCompleteSound(soundOn);
+    const missedItems = sessionResults.filter((r) => !r.result.correct);
+
+    mainEl.innerHTML = `
+      <div class="det-rs-complete">
+        <div class="det-rs-complete-body">
+          ${getCompleteCardsSvg()}
+          <h2 class="det-rs-complete-title">Practice complete! Keep it up!</h2>
+          <p class="det-rs-complete-sub">${correctCount}/${sessionResults.length} correct · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
+          ${missedItems.length > 0 ? `
+            <button type="button" id="dp-rs-missed-btn" class="det-rs-missed-toggle">
+              Review ${missedItems.length} missed ${missedItems.length === 1 ? 'word' : 'words'}
+            </button>
+            <div id="dp-rs-missed-panel" class="det-rs-missed-panel hidden">
+              ${missedItems.map((m) => `
+                <div class="det-rs-missed-row">
+                  <strong>${escapeHtml(m.item.word)}</strong>
+                  <span style="color:#777777;"> — ${m.item.isReal ? 'Real English word (Yes)' : 'Not a real word (No)'}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+        <div class="det-rs-complete-footer">
+          <button type="button" id="dp-rs-done" class="det-btn-blue">DONE</button>
+        </div>
+      </div>
+    `;
+
+    const missedBtn = mainEl.querySelector('#dp-rs-missed-btn');
+    const missedPanel = mainEl.querySelector('#dp-rs-missed-panel');
+    missedBtn?.addEventListener('click', () => {
+      missedPanel?.classList.toggle('hidden');
+    });
+
+    const finishSession = () => {
+      playTapSound(soundOn);
+      navigate('practice');
+    };
+
+    mainEl.querySelector('#dp-rs-done').addEventListener('click', finishSession);
+    continueKeyListener = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        finishSession();
+      }
+    };
+    document.addEventListener('keydown', continueKeyListener);
+  };
+
+  const launchArena = () => {
+    if (aborted) return;
+
+    mainEl.innerHTML = `
+      <div class="det-rs-shell">
+        <header class="det-rs-header">
+          <div class="det-rs-header-inner">
+            <div class="det-rs-timer-group">
+              <span class="det-rs-timer-clock" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.1"/>
+                  <path d="M12 7.5V12.5L15 14.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span id="dp-rs-timer" class="det-rs-timer-val">0:05</span>
+              <span class="det-rs-timer-sub"><span>for this</span><span>question</span></span>
+            </div>
+            <div class="det-rs-header-actions">
+              <button type="button" id="dp-rs-sound" class="det-rs-icon-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+              <button type="button" id="dp-rs-exit" class="det-rs-icon-btn" title="Exit Practice" aria-label="Exit">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <main class="det-rs-stage">
+          <div id="dp-rs-mount" style="width:100%;"></div>
+        </main>
+        <div id="dp-rs-drawer" class="det-rs-drawer hidden"></div>
+      </div>
+    `;
+
+    const timerEl = mainEl.querySelector('#dp-rs-timer');
+    const mountEl = mainEl.querySelector('#dp-rs-mount');
+    const drawerEl = mainEl.querySelector('#dp-rs-drawer');
+    const soundBtn = mainEl.querySelector('#dp-rs-sound');
+
+    mainEl.querySelector('#dp-rs-exit').addEventListener('click', () => navigate('practice'));
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn;
+      soundBtn.textContent = soundOn ? '🔊' : '🔇';
+      updateSettings({ soundEnabled: soundOn });
+    });
+
+    const loadWord = async () => {
+      if (aborted) return;
+      clearItemTimers();
+      activeRenderer?.cleanup();
+      activeRenderer = null;
+
+      if (currentIndex >= totalItems) {
+        renderCompletion();
+        return;
+      }
+
+      const settings = loadState().settings;
+      const lang = settings.uiLang || 'uz';
+      const item = batchQueue
+        ? (batchQueue[currentIndex] || pickQuestionFromBank('read_select', currentDiff, usedIds, { seenIds, preferReal: polaritySchedule[currentIndex] }))
+        : pickQuestionFromBank('read_select', currentDiff, usedIds, { seenIds, preferReal: polaritySchedule[currentIndex] });
+
+      usedIds.add(item.id);
+      if (!item.isAiGenerated) {
+        seenIds.add(item.id);
+        markSeenIds('read_select', [item.id], maxKeep);
+      }
+      if (item.word) {
+        recordRecentReadSelectWords([item.word]);
+      }
+
+      drawerEl.className = 'det-rs-drawer hidden';
+      drawerEl.innerHTML = '';
+
+      let leftSec = durationSec;
+      let submitted = false;
+
+      const updateTimerUi = () => {
+        if (!timerEl) return;
+        timerEl.textContent = formatShortTimer(leftSec);
+        timerEl.classList.toggle('urgent', leftSec <= 1);
+      };
+      updateTimerUi();
+
+      const handleAnswer = async (overrideAns = undefined, timedOut = false) => {
+        if (submitted || aborted) return;
+        submitted = true;
+        clearItemTimers();
+
+        const answer = overrideAns !== undefined ? overrideAns : await activeRenderer.getAnswer();
+        activeRenderer.cleanup();
+        if (aborted) return;
+
+        const result = await gradeAnyItem({ item, answer, settings });
+        if (aborted) return;
+
+        sessionResults.push({ item, result });
+
+        if (!result.correct) {
+          addMistake({
+            type: 'read_select',
+            prompt: item.word,
+            userAnswer: result.userSummary,
+            correctAnswer: result.expected,
+            note: 'Skill Practice'
+          });
+          syncChrome();
+        }
+
+        if (practiceDifficulty === 'adaptive') {
+          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+        }
+
+        applyObjectiveReviewVisuals(mountEl, item, result);
+
+        if (timedOut && answer == null) {
+          playTimeoutSound(soundOn);
+        } else if (result.correct) {
+          playCorrectSound(soundOn);
+        } else {
+          playWrongSound(soundOn);
+        }
+
+        const isCorrect = Boolean(result.correct);
+        const badgeSvg = isCorrect
+          ? `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+
+        drawerEl.className = `det-rs-drawer ${isCorrect ? 'correct' : 'wrong'}`;
+        drawerEl.innerHTML = `
+          <div class="det-rs-drawer-inner">
+            <div class="det-rs-drawer-row">
+              <span class="det-rs-badge">${badgeSvg}</span>
+              <span class="det-rs-heading">${isCorrect ? 'Great job!' : 'Incorrect'}</span>
+            </div>
+            <button type="button" id="dp-rs-cta" class="det-rs-cta">${isCorrect ? 'CONTINUE' : 'GOT IT'}</button>
+          </div>
+        `;
+
+        const ctaBtn = drawerEl.querySelector('#dp-rs-cta');
+        let proceeding = false;
+        const proceed = () => {
+          if (proceeding || aborted) return;
+          proceeding = true;
+          if (continueKeyListener) {
+            document.removeEventListener('keydown', continueKeyListener);
+            continueKeyListener = null;
+          }
+          playTapSound(soundOn);
+
+          const isLast = currentIndex + 1 >= totalItems;
+          if (isLast) {
+            ctaBtn.disabled = true;
+            ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
+            finishDotsTimer = setTimeout(() => {
+              finishDotsTimer = null;
+              if (!aborted) renderCompletion();
+            }, 420);
+          } else {
+            currentIndex += 1;
+            loadWord();
+          }
+        };
+
+        ctaBtn.addEventListener('click', proceed);
+        continueKeyListener = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            proceed();
+          }
+        };
+        document.addEventListener('keydown', continueKeyListener);
+      };
+
+      activeRenderer = mountQuestionRenderer(mountEl, item, {
+        settings,
+        lang,
+        onImmediateSubmit: (val) => handleAnswer(val, false)
+      });
+
+      itemTimerId = setInterval(() => {
+        leftSec -= 1;
+        updateTimerUi();
+        if (leftSec <= 0) {
+          handleAnswer(null, true);
+        }
+      }, 1000);
+    };
+
+    loadWord();
+  };
+
+  const settings = loadState().settings;
+  const minDelay = new Promise((resolve) => {
+    loaderTimer = setTimeout(() => {
+      loaderTimer = null;
+      resolve();
+    }, 550);
+  });
+
+  if (useAi && settings.apiKey) {
+    Promise.all([
+      minDelay,
+      generateReadSelectBatch({
+        apiKey: settings.apiKey,
+        model: settings.model,
+        count: totalItems,
+        difficulty: currentDiff,
+        avoidWords: getRecentReadSelectWords()
+      }).then((aiWords) => {
+        const list = [...aiWords];
+        if (list.length < totalItems) {
+          list.push(...buildReadSelectRound({
+            count: totalItems - list.length,
+            difficulty: currentDiff,
+            seenIds,
+            usedIds
+          }));
+        }
+        batchQueue = shuffleArray(list);
+      }).catch((err) => {
+        const lang = loadState().settings.uiLang || 'uz';
+        showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+        batchQueue = buildReadSelectRound({ count: totalItems, difficulty: currentDiff, seenIds, usedIds });
+      })
+    ]).then(() => {
+      if (!aborted) launchArena();
+    });
+  } else {
+    minDelay.then(() => {
+      if (!aborted) launchArena();
+    });
+  }
+}
+
 function startPracticeSession(typeId, useAi) {
   if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
+  if (typeId === 'read_select') {
+    startReadSelectPractice(useAi);
+    return;
+  }
   unlockSpeech();
 
   const meta = getQuestionTypeMeta(typeId);
