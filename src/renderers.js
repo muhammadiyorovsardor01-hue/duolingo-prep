@@ -62,16 +62,10 @@ export function applyObjectiveReviewVisuals(container, item, result) {
       btn.disabled = true;
     });
   } else if (item.type === 'fill_blanks') {
-    const expected = String(item.missing || '').toLowerCase();
-    const boxes = Array.from(container.querySelectorAll('.char-box'));
-    boxes.forEach((box, idx) => {
+    const boxes = Array.from(container.querySelectorAll('.det-fb-cell-input, .char-box'));
+    boxes.forEach((box) => {
       box.readOnly = true;
-      const got = (box.value || '').toLowerCase();
-      if (got && got === expected[idx]) {
-        box.classList.add('box-correct');
-      } else {
-        box.classList.add('box-wrong');
-      }
+      box.blur();
     });
   } else if (item.type === 'read_complete') {
     const details = result.details || [];
@@ -92,7 +86,7 @@ export function applyObjectiveReviewVisuals(container, item, result) {
 }
 
 export function mountQuestionRenderer(container, item, options = {}) {
-  const { settings = {}, onSubmitReady, onImmediateSubmit, lang = 'uz' } = options;
+  const { settings = {}, onSubmitReady, onImmediateSubmit, onEnterSubmit, lang = 'uz' } = options;
   let cleanupFns = [];
   const registerCleanup = (fn) => cleanupFns.push(fn);
 
@@ -157,19 +151,105 @@ export function mountQuestionRenderer(container, item, options = {}) {
 
   // 2. FILL IN THE BLANKS
   else if (type === 'fill_blanks') {
+    const prefixStr = String(item.prefix || '');
     const missingLen = String(item.missing || '').length;
-    const boxesHtml = Array.from({ length: missingLen }, (_, i) =>
-      `<input type="text" maxlength="1" class="char-box" data-fb-idx="${i}" autocomplete="off" spellcheck="false" aria-label="Letter ${i + 1}" />`
+    const prefixCellsHtml = Array.from(prefixStr, (ch) =>
+      `<span class="det-fb-cell prefix">${escapeHtml(ch)}</span>`
+    ).join('');
+    const blankCellsHtml = Array.from({ length: missingLen }, (_, i) =>
+      `<input type="text" maxlength="2" class="det-fb-cell-input" data-fb-idx="${i}" inputmode="text" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" aria-label="Letter ${i + 1}" />`
     ).join('');
 
     container.innerHTML = `
-      <h3 class="det-q-prompt">Complete the sentence with the correct word</h3>
-      <p class="det-q-hint">Type one letter in each blank box.</p>
-      <div class="ctest-passage">
-        <span>${escapeHtml(item.before)}</span><span class="ctest-token"><span class="ctest-prefix">${escapeHtml(item.prefix)}</span><span class="ctest-boxes">${boxesHtml}</span></span><span>${escapeHtml(item.after)}</span>
+      <div class="det-fb-wrap">
+        <h3 class="det-fb-prompt">Complete the sentence with the correct word</h3>
+        <div class="det-fb-sentence">
+          <span>${escapeHtml(item.before)}</span><span class="det-fb-word-strip">${prefixCellsHtml}${blankCellsHtml}</span><span>${escapeHtml(item.after)}</span>
+        </div>
       </div>
     `;
-    const boxes = wireCharBoxes(container);
+
+    const boxes = Array.from(container.querySelectorAll('.det-fb-cell-input'));
+    const syncReady = () => {
+      boxes.forEach((b) => b.classList.toggle('filled', b.value.length > 0));
+      onSubmitReady?.(boxes.length > 0 && boxes.every((b) => b.value.length === 1));
+    };
+
+    container.querySelectorAll('.det-fb-cell.prefix').forEach((cell) => {
+      cell.addEventListener('click', () => {
+        const firstEmpty = boxes.find((b) => !b.value) || boxes[0];
+        firstEmpty?.focus();
+      });
+    });
+
+    boxes.forEach((box, idx) => {
+      box.dataset.prevVal = '';
+      box.addEventListener('input', () => {
+        if (box.readOnly) return;
+        const prev = box.dataset.prevVal || '';
+        const letters = (box.value || '').replace(/[^a-zA-Z]/g, '');
+        if (!prev && letters.length > 1) {
+          let cursor = idx;
+          for (const ch of letters) {
+            if (cursor >= boxes.length) break;
+            boxes[cursor].value = ch;
+            boxes[cursor].dataset.prevVal = ch;
+            cursor += 1;
+          }
+          const nextFocus = boxes[Math.min(cursor, boxes.length - 1)];
+          nextFocus?.focus();
+        } else {
+          const single = prev && letters.length > 1 ? letters.slice(-1) : letters.slice(0, 1);
+          box.value = single;
+          box.dataset.prevVal = single;
+          if (single && idx < boxes.length - 1) {
+            boxes[idx + 1].focus();
+          }
+        }
+        syncReady();
+      });
+
+      box.addEventListener('beforeinput', (e) => {
+        if (box.readOnly) return;
+        if (e.inputType === 'deleteContentBackward' && !box.value && idx > 0) {
+          e.preventDefault();
+          boxes[idx - 1].value = '';
+          boxes[idx - 1].dataset.prevVal = '';
+          boxes[idx - 1].focus();
+          syncReady();
+        }
+      });
+
+      box.addEventListener('keydown', (e) => {
+        if (box.readOnly) return;
+        if (e.key === 'Backspace') {
+          if (!box.value && idx > 0) {
+            e.preventDefault();
+            boxes[idx - 1].value = '';
+            boxes[idx - 1].dataset.prevVal = '';
+            boxes[idx - 1].focus();
+            syncReady();
+          }
+        } else if (e.key === 'ArrowLeft' && idx > 0) {
+          e.preventDefault();
+          boxes[idx - 1].focus();
+        } else if (e.key === 'ArrowRight' && idx < boxes.length - 1) {
+          e.preventDefault();
+          boxes[idx + 1].focus();
+        } else if (e.key === 'Enter') {
+          if (boxes.length > 0 && boxes.every((b) => b.value.length === 1)) {
+            e.preventDefault();
+            onEnterSubmit?.();
+          }
+        }
+      });
+    });
+
+    syncReady();
+    const focusTimer = setTimeout(() => {
+      if (boxes[0] && !boxes[0].readOnly) boxes[0].focus();
+    }, 40);
+    registerCleanup(() => clearTimeout(focusTimer));
     getAnswer = () => boxes.map((b) => b.value || '').join('');
   }
 

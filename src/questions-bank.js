@@ -23,7 +23,7 @@ export const QUESTION_TYPES = [
     name: 'Fill in the Blanks',
     skills: ['reading'],
     durationSec: 20,
-    sessionLength: 6,
+    sessionLength: 5,
     descUz: 'Gapdagi tushirib qoldirilgan so‘zning qolgan harflarini 20 soniyada to‘ldiring.',
     descEn: 'Complete the unfinished word in a sentence within 20 seconds.',
     aiGeneratable: true,

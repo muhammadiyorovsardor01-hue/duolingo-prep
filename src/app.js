@@ -400,9 +400,9 @@ function getSkillIconSvg(typeId) {
   if (typeId === 'fill_blanks') {
     return `
       <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
-        <rect x="5" y="18" width="12" height="16" rx="4" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
-        <rect x="20" y="18" width="12" height="16" rx="4" fill="#1CB0F6" stroke="#1899D6" stroke-width="2"/>
-        <rect x="35" y="18" width="12" height="16" rx="4" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="6" y="18" width="13" height="16" rx="4" fill="#F4F5F7" stroke="#D8DCE3" stroke-width="2.2"/>
+        <rect x="19" y="16" width="14" height="20" rx="4.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="2.4"/>
+        <rect x="33" y="18" width="13" height="16" rx="4" fill="#F4F5F7" stroke="#D8DCE3" stroke-width="2.2"/>
       </svg>
     `;
   }
@@ -508,6 +508,16 @@ function getCompleteCardsSvg() {
       <path d="M26 34.5L34.5 42.5L49 26" stroke="#1CB0F6" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
       <rect x="54" y="34" width="44" height="44" rx="11" transform="rotate(10 54 34)" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="3"/>
       <path d="M65.5 47.5L80.5 62.5M80.5 47.5L65.5 62.5" stroke="#1CB0F6" stroke-width="5.2" stroke-linecap="round"/>
+    </svg>
+  `;
+}
+
+function getFillBlanksCompleteSvg() {
+  return `
+    <svg width="116" height="58" viewBox="0 0 116 58" fill="none" aria-hidden="true">
+      <rect x="8" y="12" width="32" height="34" rx="7" fill="#F4F5F7" stroke="#D8DCE3" stroke-width="2.8"/>
+      <rect x="41" y="7" width="34" height="44" rx="9" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="3.2"/>
+      <rect x="76" y="12" width="32" height="34" rx="7" fill="#F4F5F7" stroke="#D8DCE3" stroke-width="2.8"/>
     </svg>
   `;
 }
@@ -1016,10 +1026,428 @@ function startReadSelectPractice(useAi) {
   }
 }
 
+function startFillBlanksPractice(useAi) {
+  const meta = getQuestionTypeMeta('fill_blanks');
+  const totalItems = meta.sessionLength || 5;
+  const durationSec = meta.durationSec || 20;
+  const sessionStartedAt = Date.now();
+  const usedIds = new Set();
+  const seenIds = getSeenIds('fill_blanks');
+  const maxKeep = Math.max(1, getBankCapacity('fill_blanks') - 1);
+  const sessionResults = [];
+
+  let currentIndex = 0;
+  let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let soundOn = loadState().settings.soundEnabled !== false;
+  let aborted = false;
+  let loaderTimer = null;
+  let itemTimerId = null;
+  let finishDotsTimer = null;
+  let drawerKeyTimer = null;
+  let activeRenderer = null;
+  let continueKeyListener = null;
+  let prefetchedNext = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
+
+  const clearItemTimers = () => {
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
+    if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
+    if (continueKeyListener) {
+      document.removeEventListener('keydown', continueKeyListener);
+      continueKeyListener = null;
+    }
+  };
+
+  practiceCleanup = () => {
+    aborted = true;
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+  };
+
+  const prefetchAiItem = (idx, diff) => {
+    const s = loadState().settings;
+    if (!useAi || !s.apiKey || idx >= totalItems) {
+      prefetchedNext = null;
+      return;
+    }
+    prefetchedNext = {
+      index: idx,
+      promise: generateQuestion({ apiKey: s.apiKey, model: s.model, type: 'fill_blanks', difficulty: diff }).catch(() => null)
+    };
+  };
+
+  mainEl.innerHTML = getOwlLoaderHtml();
+
+  const renderCompletion = () => {
+    clearItemTimers();
+    activeRenderer?.cleanup();
+    activeRenderer = null;
+    if (aborted) return;
+
+    const totalSec = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+    const avgPct = sessionResults.length
+      ? Math.round(sessionResults.reduce((s, r) => s + r.result.pctScore, 0) / sessionResults.length)
+      : 0;
+    const correctCount = sessionResults.filter((r) => r.result.correct).length;
+    const sessionDetScore = estimateAbilityIRT(sessionResults.map((r) => ({
+      type: 'fill_blanks',
+      difficulty: r.item.difficulty || 3,
+      pctScore: r.result.pctScore
+    })));
+    const rangeLow = Math.max(10, sessionDetScore - 5);
+    const rangeHigh = Math.min(160, sessionDetScore + 5);
+
+    if (sessionResults.length > 0) {
+      recordPracticeAttempt({
+        type: 'fill_blanks',
+        detScore: sessionDetScore,
+        pctScore: avgPct,
+        timeSec: totalSec
+      });
+      syncChrome();
+    }
+
+    playCompleteSound(soundOn);
+    const missedItems = sessionResults.filter((r) => !r.result.correct);
+
+    mainEl.innerHTML = `
+      <div class="det-rs-complete">
+        <div class="det-rs-complete-body">
+          ${getFillBlanksCompleteSvg()}
+          <h2 class="det-rs-complete-title">Practice complete! Keep it up!</h2>
+          <p class="det-rs-complete-sub">${correctCount}/${sessionResults.length} correct · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
+          ${missedItems.length > 0 ? `
+            <button type="button" id="dp-fb-missed-btn" class="det-rs-missed-toggle">
+              Review ${missedItems.length} missed ${missedItems.length === 1 ? 'word' : 'words'}
+            </button>
+            <div id="dp-fb-missed-panel" class="det-rs-missed-panel hidden">
+              ${missedItems.map((m) => `
+                <div class="det-rs-missed-row">
+                  <strong>${escapeHtml(m.item.fullWord || `${m.item.prefix || ''}${m.item.missing || ''}`)}</strong>
+                  <span style="color:#777777;"> — ${escapeHtml(`${m.item.before || ''}${m.item.fullWord || `${m.item.prefix || ''}${m.item.missing || ''}`}${m.item.after || ''}`)}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+        <div class="det-rs-complete-footer">
+          <button type="button" id="dp-fb-done" class="det-btn-blue">DONE</button>
+        </div>
+      </div>
+    `;
+
+    const missedBtn = mainEl.querySelector('#dp-fb-missed-btn');
+    const missedPanel = mainEl.querySelector('#dp-fb-missed-panel');
+    missedBtn?.addEventListener('click', () => {
+      missedPanel?.classList.toggle('hidden');
+    });
+
+    const finishSession = () => {
+      playTapSound(soundOn);
+      navigate('practice');
+    };
+
+    mainEl.querySelector('#dp-fb-done').addEventListener('click', finishSession);
+    continueKeyListener = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        finishSession();
+      }
+    };
+    document.addEventListener('keydown', continueKeyListener);
+  };
+
+  const launchArena = () => {
+    if (aborted) return;
+
+    mainEl.innerHTML = `
+      <div class="det-rs-shell">
+        <header class="det-rs-header">
+          <div class="det-rs-header-inner">
+            <div class="det-rs-timer-group">
+              <span class="det-rs-timer-clock" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.1"/>
+                  <path d="M12 7.5V12.5L15 14.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span id="dp-fb-timer" class="det-rs-timer-val">0:20</span>
+              <span class="det-rs-timer-sub"><span>for this</span><span>question</span></span>
+            </div>
+            <div class="det-rs-header-actions">
+              <button type="button" id="dp-fb-sound" class="det-rs-icon-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+              <button type="button" id="dp-fb-exit" class="det-rs-icon-btn" title="Exit Practice" aria-label="Exit">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <main class="det-fb-stage">
+          <div id="dp-fb-mount" style="width:100%;"></div>
+        </main>
+        <div id="dp-fb-submit-bar" class="det-fb-submit-bar">
+          <div class="det-fb-submit-inner">
+            <button type="button" id="dp-fb-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        </div>
+        <div id="dp-fb-drawer" class="det-rs-drawer hidden"></div>
+      </div>
+    `;
+
+    const timerEl = mainEl.querySelector('#dp-fb-timer');
+    const mountEl = mainEl.querySelector('#dp-fb-mount');
+    const submitBarEl = mainEl.querySelector('#dp-fb-submit-bar');
+    const submitBtnEl = mainEl.querySelector('#dp-fb-submit');
+    const drawerEl = mainEl.querySelector('#dp-fb-drawer');
+    const soundBtn = mainEl.querySelector('#dp-fb-sound');
+
+    mainEl.querySelector('#dp-fb-exit').addEventListener('click', () => navigate('practice'));
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn;
+      soundBtn.textContent = soundOn ? '🔊' : '🔇';
+      updateSettings({ soundEnabled: soundOn });
+    });
+
+    let activeSubmitHandler = null;
+    submitBtnEl.addEventListener('click', () => {
+      if (activeSubmitHandler) activeSubmitHandler();
+    });
+
+    const loadItem = async () => {
+      if (aborted) return;
+      clearItemTimers();
+      activeRenderer?.cleanup();
+      activeRenderer = null;
+
+      if (currentIndex >= totalItems) {
+        renderCompletion();
+        return;
+      }
+
+      const settings = loadState().settings;
+      const lang = settings.uiLang || 'uz';
+      let item = null;
+
+      if (useAi && settings.apiKey) {
+        if (prefetchedNext && prefetchedNext.index === currentIndex) {
+          item = await prefetchedNext.promise;
+        }
+        if (!item) {
+          try {
+            item = await generateQuestion({ apiKey: settings.apiKey, model: settings.model, type: 'fill_blanks', difficulty: currentDiff });
+          } catch (err) {
+            showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+          }
+        }
+      }
+
+      if (!item) {
+        item = pickQuestionFromBank('fill_blanks', currentDiff, usedIds, { seenIds });
+      }
+      if (aborted) return;
+
+      usedIds.add(item.id);
+      if (!item.isAiGenerated) {
+        seenIds.add(item.id);
+        markSeenIds('fill_blanks', [item.id], maxKeep);
+      }
+      prefetchAiItem(currentIndex + 1, currentDiff);
+
+      drawerEl.className = 'det-rs-drawer hidden';
+      drawerEl.innerHTML = '';
+      submitBarEl.classList.remove('hidden');
+      submitBtnEl.disabled = true;
+
+      let leftSec = durationSec;
+      let submitted = false;
+
+      const updateTimerUi = () => {
+        if (!timerEl) return;
+        timerEl.textContent = formatShortTimer(leftSec);
+        timerEl.classList.toggle('urgent', leftSec <= 3);
+      };
+      updateTimerUi();
+
+      const handleAnswer = async (timedOut = false) => {
+        if (submitted || aborted) return;
+        submitted = true;
+        activeSubmitHandler = null;
+        clearItemTimers();
+
+        const answer = await activeRenderer.getAnswer();
+        activeRenderer.cleanup();
+        if (aborted) return;
+
+        const result = await gradeAnyItem({ item, answer, settings });
+        if (aborted) return;
+
+        sessionResults.push({ item, result });
+
+        const expectedWord = item.fullWord || `${item.prefix || ''}${item.missing || ''}`;
+        const fullSentence = `${item.before || ''}${expectedWord}${item.after || ''}`;
+
+        if (!result.correct) {
+          addMistake({
+            type: 'fill_blanks',
+            prompt: `${item.before || ''}${item.prefix || ''}___${item.after || ''}`,
+            userAnswer: result.userSummary,
+            correctAnswer: expectedWord,
+            note: 'Fill in the Blanks'
+          });
+          syncChrome();
+        }
+
+        if (practiceDifficulty === 'adaptive') {
+          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+        }
+
+        applyObjectiveReviewVisuals(mountEl, item, result);
+        submitBarEl.classList.add('hidden');
+
+        if (timedOut && (!answer || !String(answer).trim())) {
+          playTimeoutSound(soundOn);
+        } else if (result.correct) {
+          playCorrectSound(soundOn);
+        } else {
+          playWrongSound(soundOn);
+        }
+
+        const isCorrect = Boolean(result.correct);
+        const badgeSvg = isCorrect
+          ? `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+
+        drawerEl.className = `det-rs-drawer ${isCorrect ? 'correct' : 'wrong'}`;
+        drawerEl.innerHTML = `
+          <div class="det-rs-drawer-inner">
+            <div class="det-rs-drawer-row">
+              <span class="det-rs-badge">${badgeSvg}</span>
+              <span class="det-rs-heading">${isCorrect ? 'Great job!' : 'Incorrect'}</span>
+            </div>
+            ${!isCorrect ? `
+              <div>
+                <div class="det-fb-correct-label">Correct Answer:</div>
+                <p class="det-fb-correct-sentence">${escapeHtml(fullSentence)}</p>
+              </div>
+            ` : ''}
+            <button type="button" id="dp-fb-cta" class="det-rs-cta">${isCorrect ? 'CONTINUE' : 'GOT IT'}</button>
+          </div>
+        `;
+
+        const ctaBtn = drawerEl.querySelector('#dp-fb-cta');
+        let proceeding = false;
+        const proceed = () => {
+          if (proceeding || aborted) return;
+          proceeding = true;
+          if (drawerKeyTimer) {
+            clearTimeout(drawerKeyTimer);
+            drawerKeyTimer = null;
+          }
+          if (continueKeyListener) {
+            document.removeEventListener('keydown', continueKeyListener);
+            continueKeyListener = null;
+          }
+          playTapSound(soundOn);
+
+          const isLast = currentIndex + 1 >= totalItems;
+          if (isLast) {
+            ctaBtn.disabled = true;
+            ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
+            finishDotsTimer = setTimeout(() => {
+              finishDotsTimer = null;
+              if (!aborted) renderCompletion();
+            }, 420);
+          } else {
+            currentIndex += 1;
+            loadItem();
+          }
+        };
+
+        ctaBtn.addEventListener('click', proceed);
+        continueKeyListener = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            proceed();
+          }
+        };
+        drawerKeyTimer = setTimeout(() => {
+          drawerKeyTimer = null;
+          if (!aborted && !proceeding && continueKeyListener) {
+            document.addEventListener('keydown', continueKeyListener);
+          }
+        }, 0);
+      };
+
+      activeSubmitHandler = () => {
+        if (!submitBtnEl.disabled) {
+          handleAnswer(false);
+        }
+      };
+
+      activeRenderer = mountQuestionRenderer(mountEl, item, {
+        settings,
+        lang,
+        onSubmitReady: (allFilled) => {
+          if (!submitted && !aborted) {
+            submitBtnEl.disabled = !allFilled;
+          }
+        },
+        onEnterSubmit: () => {
+          if (!submitted && !aborted && !submitBtnEl.disabled) {
+            handleAnswer(false);
+          }
+        }
+      });
+
+      itemTimerId = setInterval(() => {
+        leftSec -= 1;
+        updateTimerUi();
+        if (leftSec <= 0) {
+          handleAnswer(true);
+        }
+      }, 1000);
+    };
+
+    loadItem();
+  };
+
+  const settings = loadState().settings;
+  const minDelay = new Promise((resolve) => {
+    loaderTimer = setTimeout(() => {
+      loaderTimer = null;
+      resolve();
+    }, 550);
+  });
+
+  if (useAi && settings.apiKey) {
+    Promise.all([
+      minDelay,
+      prefetchAiItem(0, currentDiff) || prefetchedNext?.promise
+    ]).then(() => {
+      if (!aborted) launchArena();
+    });
+  } else {
+    minDelay.then(() => {
+      if (!aborted) launchArena();
+    });
+  }
+}
+
 function startPracticeSession(typeId, useAi) {
   if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
   if (typeId === 'read_select') {
     startReadSelectPractice(useAi);
+    return;
+  }
+  if (typeId === 'fill_blanks') {
+    startFillBlanksPractice(useAi);
     return;
   }
   unlockSpeech();
