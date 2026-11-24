@@ -2821,3 +2821,469 @@ button {
     line-height: 2.35;
   }
 }
+
+
+/* =========================================================
+   OFFICIAL DUOLINGO INTERACTIVE READING (.det-ir-*)
+   ========================================================= */
+.det-ir-stage {
+  flex: 1;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 20px 190px;
+  background: #FFFFFF;
+}
+
+.det-ir-passage {
+  font-size: 18px;
+  line-height: 2.35;
+  color: #3C3C3C;
+  font-weight: 400;
+}
+
+.det-ir-passage.compact {
+  font-size: 17px;
+  line-height: 1.78;
+}
+
+/* Stage 1: Inline Numbered Word Dropdown */
+.det-ir-select-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 4px;
+}
+
+.det-ir-select-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 6px 8px;
+  min-width: 158px;
+  border: 2px solid #E5E5E5;
+  border-bottom-width: 3px;
+  border-radius: 12px;
+  background: #FFFFFF;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  color: #AFAFAF;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.det-ir-select-btn.filled {
+  color: #3C3C3C;
+  font-weight: 700;
+  border-color: #D8DCE3;
+}
+
+.det-ir-select-btn.open {
+  border-color: #84D8FF;
+  background: #F5FCFF;
+}
+
+.det-ir-select-btn:disabled {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.det-ir-select-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.det-ir-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid #D8DCE3;
+  background: #FFFFFF;
+  color: #777777;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.det-ir-chev {
+  color: #777777;
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.det-ir-select-btn.open .det-ir-chev,
+.det-ir-sent-btn.open .det-ir-chev {
+  transform: rotate(180deg);
+}
+
+.det-ir-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  min-width: 210px;
+  max-width: min(320px, 86vw);
+  background: #FFFFFF;
+  border: 2px solid #E5E5E5;
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  z-index: 60;
+  overflow: hidden;
+}
+
+.det-ir-menu.open-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.det-ir-menu.hidden,
+.det-ir-sent-menu.hidden {
+  display: none;
+}
+
+.det-ir-menu-item {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #EFEFEF;
+  background: #FFFFFF;
+  padding: 13px 16px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: #3C3C3C;
+  cursor: pointer;
+  display: block;
+  line-height: 1.4;
+}
+
+.det-ir-menu-item:last-child {
+  border-bottom: none;
+}
+
+.det-ir-menu-item:hover {
+  background: #F7F9FB;
+}
+
+.det-ir-menu-item.selected {
+  background: #DDF4FF;
+  color: #1899D6;
+  font-weight: 700;
+}
+
+/* Stage 2: Inline Sentence Dropdown */
+.det-ir-sent-wrap {
+  position: relative;
+  margin: 16px 0;
+}
+
+.det-ir-sent-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  padding: 14px 16px;
+  border: 2px solid #E5E5E5;
+  border-bottom-width: 3px;
+  border-radius: 14px;
+  background: #FFFFFF;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #AFAFAF;
+  cursor: pointer;
+}
+
+.det-ir-sent-btn.filled {
+  color: #3C3C3C;
+  font-weight: 500;
+  border-color: #D8DCE3;
+}
+
+.det-ir-sent-btn.open {
+  border-color: #84D8FF;
+  background: #F5FCFF;
+}
+
+.det-ir-sent-btn:disabled {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.det-ir-sent-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-height: 56vh;
+  overflow-y: auto;
+  background: #FFFFFF;
+  border: 2px solid #E5E5E5;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+  z-index: 60;
+}
+
+/* Stage 3 & 4: Highlight the Answer */
+.det-ir-hl-question {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #3C3C3C;
+  line-height: 1.4;
+}
+
+.det-ir-hl-preview {
+  min-height: 92px;
+  max-height: 132px;
+  overflow-y: auto;
+  border: 2px solid #E5E5E5;
+  border-radius: 14px;
+  background: #FAFAFA;
+  padding: 14px 16px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: #3C3C3C;
+  margin-bottom: 18px;
+}
+
+.det-ir-hl-preview.empty {
+  color: #AFAFAF;
+}
+
+.det-ir-hl-divider {
+  height: 1.5px;
+  background: #E5E5E5;
+  margin: 0 0 18px;
+}
+
+.det-ir-hl-passage {
+  font-size: 17px;
+  line-height: 1.78;
+  color: #3C3C3C;
+  user-select: none;
+}
+
+.det-ir-word {
+  display: inline;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 0;
+  transition: background 0.08s ease;
+  user-select: none;
+}
+
+.det-ir-word.hl {
+  background: #FFE875;
+  color: #2B2B2B;
+}
+
+.det-ir-word.hl-anchor {
+  background: #FFE875;
+  box-shadow: inset 0 -2px 0 #F5A623;
+  position: relative;
+}
+
+.det-ir-word.hl-start::before,
+.det-ir-word.hl-end::after {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #FFB800;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+/* Stage 5 & 6: Radio Option Cards + View Passage */
+.det-ir-radio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.det-ir-radio-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  padding: 16px 18px;
+  border: 2px solid #E5E5E5;
+  border-bottom-width: 4px;
+  border-radius: 16px;
+  background: #FFFFFF;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #3C3C3C;
+  cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.det-ir-radio-card:hover:not(:disabled) {
+  background: #F9FAFB;
+  border-color: #D8D8D8;
+  border-bottom-color: #D8D8D8;
+}
+
+.det-ir-radio-card:active:not(:disabled) {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+
+.det-ir-radio-card.selected {
+  background: #DDF4FF;
+  border-color: #84D8FF;
+  border-bottom-color: #84D8FF;
+  color: #1899D6;
+  font-weight: 600;
+}
+
+.det-ir-radio-card:disabled {
+  cursor: default;
+}
+
+.det-ir-radio-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #D8DCE3;
+  background: #FFFFFF;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.det-ir-radio-card.selected .det-ir-radio-dot {
+  border-color: #1CB0F6;
+}
+
+.det-ir-radio-card.selected .det-ir-radio-dot::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #1CB0F6;
+}
+
+.det-btn-outline {
+  width: 100%;
+  height: 48px;
+  border: 2px solid #E5E5E5;
+  border-bottom: 4px solid #E5E5E5;
+  border-radius: 14px;
+  background: #FFFFFF;
+  color: #1CB0F6;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.08s ease, background 0.12s ease;
+}
+
+.det-btn-outline:hover {
+  background: #F7FBFF;
+  border-color: #D8DCE3;
+}
+
+.det-btn-outline:active {
+  transform: translateY(2px);
+  border-bottom-width: 2px;
+}
+
+.det-ir-submit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.det-ir-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+}
+
+.det-ir-modal-backdrop.hidden {
+  display: none;
+}
+
+.det-ir-modal {
+  width: 100%;
+  max-width: 680px;
+  max-height: 82vh;
+  background: #FFFFFF;
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.det-ir-modal-head {
+  padding: 16px 20px;
+  border-bottom: 1.5px solid #E5E5E5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.det-ir-modal-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #3C3C3C;
+}
+
+.det-ir-modal-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  font-size: 16.5px;
+  line-height: 1.75;
+  color: #3C3C3C;
+}
+
+.det-ir-modal-foot {
+  padding: 14px 20px 18px;
+  border-top: 1.5px solid #EFEFEF;
+}
+
+@media (max-width: 600px) {
+  .det-ir-stage {
+    padding: 20px 16px 190px;
+  }
+
+  .det-ir-passage {
+    font-size: 16.5px;
+    line-height: 2.3;
+  }
+
+  .det-ir-hl-passage {
+    font-size: 16px;
+    line-height: 1.72;
+  }
+}

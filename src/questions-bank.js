@@ -66,7 +66,7 @@ export const QUESTION_TYPES = [
     id: 'interactive_reading',
     name: 'Interactive Reading',
     skills: ['reading'],
-    durationSec: 420,
+    durationSec: 480,
     sessionLength: 1,
     descUz: '6 bosqichli matn tahlili: so‘z tanlash, gap qo‘shish, javobni belgilash, g‘oya va sarlavha.',
     descEn: 'Multi-stage passage reading: blanks, sentence insertion, highlighting, main idea, and title.',

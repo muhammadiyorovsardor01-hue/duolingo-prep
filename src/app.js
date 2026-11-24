@@ -421,11 +421,12 @@ function getSkillIconSvg(typeId) {
   if (typeId === 'interactive_reading') {
     return `
       <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
-        <rect x="12" y="8" width="28" height="32" rx="6" fill="#F4F5F7" stroke="#E5E5E5" stroke-width="2.4"/>
-        <rect x="8" y="13" width="28" height="31" rx="6" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
-        <rect x="14" y="20" width="16" height="3.5" rx="1.75" fill="#FF9600"/>
-        <rect x="14" y="27" width="12" height="3.5" rx="1.75" fill="#D4D8DF"/>
-        <rect x="14" y="34" width="14" height="3.5" rx="1.75" fill="#D4D8DF"/>
+        <rect x="8" y="9" width="32" height="34" rx="7" fill="#FFFFFF" stroke="#D8DCE3" stroke-width="2.4"/>
+        <rect x="14" y="16" width="20" height="4.5" rx="2.2" fill="#D4D8DF"/>
+        <rect x="14" y="24" width="12" height="4.5" rx="2.2" fill="#1CB0F6"/>
+        <rect x="14" y="32" width="16" height="4.5" rx="2.2" fill="#D4D8DF"/>
+        <rect x="30" y="28" width="15" height="15" rx="4.5" fill="#1CB0F6"/>
+        <path d="M34.5 32.5L40.5 35L37 36.2L35.8 39.5L34.5 32.5Z" fill="#FFFFFF"/>
       </svg>
     `;
   }
@@ -532,6 +533,20 @@ function getReadCompleteDoneSvg() {
       <rect x="24" y="42" width="61" height="9" rx="4.5" fill="#D8DCE3"/>
       <rect x="24" y="58.5" width="30" height="12" rx="4.5" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="2.8"/>
       <rect x="60" y="60" width="25" height="9" rx="4.5" fill="#D8DCE3"/>
+    </svg>
+  `;
+}
+
+function getInteractiveReadingDoneSvg() {
+  return `
+    <svg width="110" height="96" viewBox="0 0 110 96" fill="none" aria-hidden="true">
+      <rect x="14" y="10" width="76" height="72" rx="14" fill="#FFFFFF" stroke="#D8DCE3" stroke-width="3"/>
+      <rect x="25" y="24" width="54" height="9" rx="4.5" fill="#D8DCE3"/>
+      <rect x="25" y="42" width="30" height="9" rx="4.5" fill="#D8DCE3"/>
+      <circle cx="30" cy="63" r="6" fill="#1CB0F6"/>
+      <rect x="41" y="59" width="24" height="8" rx="4" fill="#D8DCE3"/>
+      <rect x="64" y="48" width="32" height="32" rx="9" fill="#1CB0F6"/>
+      <path d="M74 58L87 63L80.2 65.4L77.8 72L74 58Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" stroke-linejoin="round"/>
     </svg>
   `;
 }
@@ -1923,6 +1938,915 @@ function startReadCompletePractice(useAi) {
   }
 }
 
+function startInteractiveReadingPractice(useAi) {
+  const meta = getQuestionTypeMeta('interactive_reading');
+  const durationSec = meta.durationSec || 480;
+  const sessionStartedAt = Date.now();
+  const usedIds = new Set();
+  const seenIds = getSeenIds('interactive_reading');
+  const maxKeep = Math.max(1, getBankCapacity('interactive_reading') - 1);
+
+  let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let soundOn = loadState().settings.soundEnabled !== false;
+  let aborted = false;
+  let loaderTimer = null;
+  let sessionTimerId = null;
+  let finishDotsTimer = null;
+  let drawerKeyTimer = null;
+  let continueKeyListener = null;
+  let stageCleanup = () => {};
+  let loadedItem = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
+
+  const clearAllTimers = () => {
+    if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
+    if (sessionTimerId) { clearInterval(sessionTimerId); sessionTimerId = null; }
+    if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
+    if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
+    if (continueKeyListener) {
+      document.removeEventListener('keydown', continueKeyListener);
+      continueKeyListener = null;
+    }
+    stageCleanup();
+    stageCleanup = () => {};
+  };
+
+  practiceCleanup = () => {
+    aborted = true;
+    clearAllTimers();
+  };
+
+  mainEl.innerHTML = getOwlLoaderHtml();
+
+  const settings = loadState().settings;
+  const loadPassagePromise = (async () => {
+    if (useAi && settings.apiKey) {
+      try {
+        loadedItem = await generateQuestion({
+          apiKey: settings.apiKey,
+          model: settings.model,
+          type: 'interactive_reading',
+          difficulty: currentDiff
+        });
+      } catch (err) {
+        const lang = settings.uiLang || 'uz';
+        showToast(`${t(lang, 'aiFallbackNotice')} (${err.message})`, 'error');
+      }
+    }
+    if (!loadedItem) {
+      loadedItem = pickQuestionFromBank('interactive_reading', currentDiff, usedIds, { seenIds });
+    }
+    if (loadedItem && !loadedItem.isAiGenerated) {
+      markSeenIds('interactive_reading', [loadedItem.id], maxKeep);
+    }
+  })();
+
+  const minDelay = new Promise((resolve) => {
+    loaderTimer = setTimeout(() => {
+      loaderTimer = null;
+      resolve();
+    }, 550);
+  });
+
+  const launchArena = () => {
+    if (aborted || !loadedItem) return;
+    const item = loadedItem;
+    const blanksTotal = item.stage1?.blanks?.length || 5;
+    const totalPossibleChecks = blanksTotal + 5;
+    const totalStages = 6;
+
+    let stageIdx = 0;
+    let leftSec = durationSec;
+    let timerPaused = false;
+    let earnedChecks = 0;
+    const recordedChecks = [];
+
+    mainEl.innerHTML = `
+      <div class="det-rs-shell">
+        <header class="det-rs-header">
+          <div class="det-rs-header-inner">
+            <div class="det-rs-timer-group">
+              <span class="det-rs-timer-clock" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.1"/>
+                  <path d="M12 7.5V12.5L15 14.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span id="dp-ir-timer" class="det-rs-timer-val">8:00</span>
+              <span id="dp-ir-timer-sub" class="det-rs-timer-sub"><span>for 6</span><span>questions</span></span>
+            </div>
+            <div class="det-rs-header-actions">
+              <button type="button" id="dp-ir-sound" class="det-rs-icon-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+              <button type="button" id="dp-ir-exit" class="det-rs-icon-btn" title="Exit Practice" aria-label="Exit">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+        <main class="det-ir-stage">
+          <div id="dp-ir-mount" style="width:100%;"></div>
+        </main>
+        <div id="dp-ir-submit-bar" class="det-fb-submit-bar"></div>
+        <div id="dp-ir-drawer" class="det-rs-drawer hidden"></div>
+        <div id="dp-ir-modal-wrap" class="det-ir-modal-backdrop hidden"></div>
+      </div>
+    `;
+
+    const timerEl = mainEl.querySelector('#dp-ir-timer');
+    const timerSubEl = mainEl.querySelector('#dp-ir-timer-sub');
+    const mountEl = mainEl.querySelector('#dp-ir-mount');
+    const submitBarEl = mainEl.querySelector('#dp-ir-submit-bar');
+    const drawerEl = mainEl.querySelector('#dp-ir-drawer');
+    const modalWrapEl = mainEl.querySelector('#dp-ir-modal-wrap');
+    const soundBtn = mainEl.querySelector('#dp-ir-sound');
+
+    mainEl.querySelector('#dp-ir-exit').addEventListener('click', () => navigate('practice'));
+    soundBtn.addEventListener('click', () => {
+      soundOn = !soundOn;
+      soundBtn.textContent = soundOn ? '🔊' : '🔇';
+      updateSettings({ soundEnabled: soundOn });
+    });
+
+    const updateTimerUi = () => {
+      if (timerEl) {
+        timerEl.textContent = formatShortTimer(leftSec);
+        timerEl.classList.toggle('urgent', leftSec <= 30);
+      }
+      if (timerSubEl) {
+        const rem = Math.max(1, totalStages - stageIdx);
+        timerSubEl.innerHTML = rem === 1
+          ? '<span>for this</span><span>question</span>'
+          : `<span>for ${rem}</span><span>questions</span>`;
+      }
+    };
+
+    const renderCompletion = () => {
+      clearAllTimers();
+      if (aborted) return;
+
+      const totalSec = Math.max(1, Math.round((Date.now() - sessionStartedAt) / 1000));
+      const pctScore = Math.max(0, Math.min(100, Math.round((earnedChecks / totalPossibleChecks) * 100)));
+      const sessionDetScore = estimateAbilityIRT([{
+        type: 'interactive_reading',
+        difficulty: item.difficulty || 3,
+        pctScore
+      }]);
+      const rangeLow = Math.max(10, sessionDetScore - 5);
+      const rangeHigh = Math.min(160, sessionDetScore + 5);
+
+      if (recordedChecks.length > 0) {
+        recordPracticeAttempt({
+          type: 'interactive_reading',
+          detScore: sessionDetScore,
+          pctScore,
+          timeSec: totalSec
+        });
+        syncChrome();
+      }
+
+      playCompleteSound(soundOn);
+      const missedChecks = recordedChecks.filter((c) => !c.ok);
+
+      mainEl.innerHTML = `
+        <div class="det-rs-complete">
+          <div class="det-rs-complete-body">
+            ${getInteractiveReadingDoneSvg()}
+            <h2 class="det-rs-complete-title">Practice complete! Keep it up!</h2>
+            <p class="det-rs-complete-sub">${Math.round(earnedChecks * 10) / 10}/${totalPossibleChecks} checks correct · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
+            ${missedChecks.length > 0 ? `
+              <button type="button" id="dp-ir-missed-btn" class="det-rs-missed-toggle">
+                Review ${missedChecks.length} missed ${missedChecks.length === 1 ? 'item' : 'items'}
+              </button>
+              <div id="dp-ir-missed-panel" class="det-rs-missed-panel hidden">
+                ${missedChecks.map((m) => `
+                  <div class="det-rs-missed-row">
+                    <strong>${escapeHtml(m.stage)}:</strong>
+                    <span style="color:#555555;"> ${escapeHtml(m.expected)}</span>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+          <div class="det-rs-complete-footer">
+            <button type="button" id="dp-ir-done" class="det-btn-blue">DONE</button>
+          </div>
+        </div>
+      `;
+
+      mainEl.querySelector('#dp-ir-missed-btn')?.addEventListener('click', () => {
+        mainEl.querySelector('#dp-ir-missed-panel')?.classList.toggle('hidden');
+      });
+
+      const finishSession = () => {
+        playTapSound(soundOn);
+        navigate('practice');
+      };
+
+      mainEl.querySelector('#dp-ir-done').addEventListener('click', finishSession);
+      continueKeyListener = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          finishSession();
+        }
+      };
+      document.addEventListener('keydown', continueKeyListener);
+    };
+
+    let activeStageSubmit = null;
+
+    sessionTimerId = setInterval(() => {
+      if (aborted || timerPaused) return;
+      leftSec -= 1;
+      updateTimerUi();
+      if (leftSec <= 0 && activeStageSubmit) {
+        activeStageSubmit(true);
+      }
+    }, 1000);
+
+    const openPassageModal = () => {
+      const fullSentences = item.fullSentences || [];
+      const chunks = [];
+      for (let i = 0; i < fullSentences.length; i += 3) {
+        chunks.push(fullSentences.slice(i, i + 3).join(' '));
+      }
+      modalWrapEl.classList.remove('hidden');
+      modalWrapEl.innerHTML = `
+        <div class="det-ir-modal" role="dialog" aria-modal="true" aria-label="Passage">
+          <div class="det-ir-modal-head">
+            <h3 class="det-ir-modal-title">${escapeHtml(item.title || 'Passage')}</h3>
+            <button type="button" id="dp-ir-modal-x" class="det-rs-icon-btn" aria-label="Close">✕</button>
+          </div>
+          <div class="det-ir-modal-body">
+            ${chunks.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p)}</p>`).join('')}
+          </div>
+          <div class="det-ir-modal-foot">
+            <button type="button" id="dp-ir-modal-close" class="det-btn-blue">CLOSE</button>
+          </div>
+        </div>
+      `;
+      const close = () => {
+        modalWrapEl.classList.add('hidden');
+        modalWrapEl.innerHTML = '';
+      };
+      modalWrapEl.querySelector('#dp-ir-modal-x')?.addEventListener('click', close);
+      modalWrapEl.querySelector('#dp-ir-modal-close')?.addEventListener('click', close);
+      modalWrapEl.onclick = (e) => {
+        if (e.target === modalWrapEl) close();
+      };
+    };
+
+    const showFeedbackDrawer = ({ outcome, answerHtml = '', isTimedOut = false, expandable = false }) => {
+      if (outcome === 'correct') {
+        playCorrectSound(soundOn);
+      } else if (outcome === 'partial') {
+        playPartialSound(soundOn);
+      } else if (isTimedOut) {
+        playTimeoutSound(soundOn);
+      } else {
+        playWrongSound(soundOn);
+      }
+
+      const checkBadgeSvg = `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      const crossBadgeSvg = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+      const chevronSvg = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M5 12.5L10 7.5L15 12.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+      if (outcome === 'correct') {
+        drawerEl.className = 'det-rs-drawer correct';
+        drawerEl.innerHTML = `
+          <div class="det-rs-drawer-inner">
+            <div class="det-rs-drawer-row">
+              <span class="det-rs-badge">${checkBadgeSvg}</span>
+              <span class="det-rs-heading">Great job!</span>
+            </div>
+            <button type="button" id="dp-ir-cta" class="det-rs-cta">CONTINUE</button>
+          </div>
+        `;
+      } else {
+        const isPartial = outcome === 'partial';
+        drawerEl.className = `det-rs-drawer ${isPartial ? 'partial' : 'wrong'}`;
+        drawerEl.innerHTML = `
+          <div class="det-rs-drawer-inner">
+            ${expandable ? `
+              <div class="det-rc-drawer-top">
+                <div class="det-rs-drawer-row">
+                  <span class="det-rs-badge">${isPartial ? checkBadgeSvg : crossBadgeSvg}</span>
+                  <span class="det-rs-heading">${isPartial ? 'Partially correct' : 'Incorrect'}</span>
+                </div>
+                <button type="button" id="dp-ir-expand" class="det-rc-expand-btn" aria-label="Expand answer">${chevronSvg}</button>
+              </div>
+              <div id="dp-ir-answer-box" class="det-rc-answer-box">
+                <div class="det-rc-answer-label">Correct Answer:</div>
+                <div class="det-rc-answer-text">${answerHtml}</div>
+              </div>
+            ` : `
+              <div class="det-rs-drawer-row">
+                <span class="det-rs-badge">${isPartial ? checkBadgeSvg : crossBadgeSvg}</span>
+                <span class="det-rs-heading">${isPartial ? 'Partially correct' : 'Incorrect'}</span>
+              </div>
+              <div>
+                <div class="det-rc-answer-label" style="color:${isPartial ? '#CD7900' : '#EA2B2B'};">Correct Answer:</div>
+                <p class="det-fb-correct-sentence" style="color:${isPartial ? '#CD7900' : '#EA2B2B'};">${answerHtml}</p>
+              </div>
+            `}
+            <button type="button" id="dp-ir-cta" class="det-rs-cta">GOT IT</button>
+          </div>
+        `;
+
+        if (expandable) {
+          const expandBtn = drawerEl.querySelector('#dp-ir-expand');
+          const answerBox = drawerEl.querySelector('#dp-ir-answer-box');
+          const toggleExpand = () => {
+            expandBtn?.classList.toggle('expanded');
+            answerBox?.classList.toggle('expanded');
+          };
+          expandBtn?.addEventListener('click', toggleExpand);
+          answerBox?.addEventListener('click', toggleExpand);
+        }
+      }
+
+      const ctaBtn = drawerEl.querySelector('#dp-ir-cta');
+      let proceeding = false;
+      const proceed = () => {
+        if (proceeding || aborted) return;
+        proceeding = true;
+        if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
+        if (continueKeyListener) {
+          document.removeEventListener('keydown', continueKeyListener);
+          continueKeyListener = null;
+        }
+        playTapSound(soundOn);
+
+        const finishNow = leftSec <= 0 || stageIdx + 1 >= totalStages;
+        if (finishNow) {
+          ctaBtn.disabled = true;
+          ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
+          finishDotsTimer = setTimeout(() => {
+            finishDotsTimer = null;
+            if (!aborted) renderCompletion();
+          }, 420);
+        } else {
+          stageIdx += 1;
+          renderStage();
+        }
+      };
+
+      ctaBtn.addEventListener('click', proceed);
+      continueKeyListener = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          proceed();
+        }
+      };
+      drawerKeyTimer = setTimeout(() => {
+        drawerKeyTimer = null;
+        if (!aborted && !proceeding && continueKeyListener) {
+          document.addEventListener('keydown', continueKeyListener);
+        }
+      }, 0);
+    };
+
+    const renderStage = () => {
+      if (aborted) return;
+      stageCleanup();
+      stageCleanup = () => {};
+      if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
+      if (continueKeyListener) {
+        document.removeEventListener('keydown', continueKeyListener);
+        continueKeyListener = null;
+      }
+      modalWrapEl.classList.add('hidden');
+      modalWrapEl.innerHTML = '';
+      drawerEl.className = 'det-rs-drawer hidden';
+      drawerEl.innerHTML = '';
+      submitBarEl.classList.remove('hidden');
+      timerPaused = false;
+      updateTimerUi();
+
+      const chevDownSvg = `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M5.5 7.5L10 12L14.5 7.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      let stageSubmitted = false;
+
+      // QUESTION 1: Select the best option for each missing word
+      if (stageIdx === 0) {
+        const parts = item.stage1?.paragraphParts || [];
+        const blanks = item.stage1?.blanks || [];
+        const chosen = new Array(blanks.length).fill('');
+        let openIdx = -1;
+
+        const passageHtml = parts.map((txt, idx) => {
+          let html = `<span>${escapeHtml(txt)}</span>`;
+          if (idx < blanks.length) {
+            const b = blanks[idx];
+            html += `
+              <span class="det-ir-select-wrap" data-ir-wrap="${idx}">
+                <button type="button" class="det-ir-select-btn" data-ir-btn="${idx}">
+                  <span class="det-ir-select-left">
+                    <span class="det-ir-num">${idx + 1}</span>
+                    <span data-ir-lbl="${idx}">Select a word</span>
+                  </span>
+                  <span class="det-ir-chev">${chevDownSvg}</span>
+                </button>
+                <div class="det-ir-menu hidden" data-ir-menu="${idx}">
+                  ${(b.options || []).map((opt) => `
+                    <button type="button" class="det-ir-menu-item" data-ir-pick="${idx}" data-val="${escapeHtml(opt)}">${escapeHtml(opt)}</button>
+                  `).join('')}
+                </div>
+              </span>
+            `;
+          }
+          return html;
+        }).join('');
+
+        mountEl.innerHTML = `
+          <div class="det-fb-wrap">
+            <h3 class="det-fb-prompt">Select the best option for each missing word</h3>
+            <div class="det-ir-passage">${passageHtml}</div>
+          </div>
+        `;
+
+        submitBarEl.innerHTML = `
+          <div class="det-fb-submit-inner">
+            <button type="button" id="dp-ir-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        `;
+        const submitBtn = submitBarEl.querySelector('#dp-ir-submit');
+
+        const closeMenus = () => {
+          openIdx = -1;
+          mountEl.querySelectorAll('.det-ir-menu').forEach((m) => m.classList.add('hidden'));
+          mountEl.querySelectorAll('.det-ir-select-btn').forEach((b) => b.classList.remove('open'));
+        };
+
+        const docClick = (e) => {
+          if (!e.target.closest?.('.det-ir-select-wrap')) closeMenus();
+        };
+        document.addEventListener('click', docClick);
+        stageCleanup = () => document.removeEventListener('click', docClick);
+
+        mountEl.querySelectorAll('[data-ir-btn]').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            if (stageSubmitted) return;
+            e.stopPropagation();
+            const bIdx = Number(btn.dataset.irBtn);
+            const wasOpen = openIdx === bIdx;
+            closeMenus();
+            if (!wasOpen) {
+              openIdx = bIdx;
+              const menu = mountEl.querySelector(`[data-ir-menu="${bIdx}"]`);
+              const rect = btn.getBoundingClientRect();
+              menu?.classList.toggle('open-up', window.innerHeight - rect.bottom < 250);
+              if (menu) {
+                const overflowsRight = rect.left + 220 > window.innerWidth - 12;
+                menu.style.left = overflowsRight ? 'auto' : '0';
+                menu.style.right = overflowsRight ? '0' : 'auto';
+              }
+              btn.classList.add('open');
+              menu?.classList.remove('hidden');
+            }
+          });
+        });
+
+        mountEl.querySelectorAll('[data-ir-pick]').forEach((optBtn) => {
+          optBtn.addEventListener('click', (e) => {
+            if (stageSubmitted) return;
+            e.stopPropagation();
+            const bIdx = Number(optBtn.dataset.irPick);
+            const val = optBtn.dataset.val;
+            chosen[bIdx] = val;
+
+            const btn = mountEl.querySelector(`[data-ir-btn="${bIdx}"]`);
+            const lbl = mountEl.querySelector(`[data-ir-lbl="${bIdx}"]`);
+            if (lbl) lbl.textContent = val;
+            btn?.classList.add('filled');
+
+            mountEl.querySelectorAll(`[data-ir-pick="${bIdx}"]`).forEach((o) => {
+              o.classList.toggle('selected', o.dataset.val === val);
+            });
+            closeMenus();
+            submitBtn.disabled = !chosen.every(Boolean);
+          });
+        });
+
+        const handleSubmit = (timedOut = false) => {
+          if (stageSubmitted || aborted) return;
+          stageSubmitted = true;
+          timerPaused = true;
+          activeStageSubmit = null;
+          closeMenus();
+
+          mountEl.querySelectorAll('.det-ir-select-btn').forEach((b) => { b.disabled = true; });
+          submitBarEl.classList.add('hidden');
+
+          let hits = 0;
+          const answerParts = blanks.map((b, i) => {
+            const ok = chosen[i] === b.correct;
+            if (ok) {
+              hits += 1;
+              earnedChecks += 1;
+            } else {
+              addMistake({
+                type: 'interactive_reading',
+                prompt: `${item.title || 'Interactive Reading'} — Blank #${i + 1}`,
+                userAnswer: chosen[i] || '(no answer)',
+                correctAnswer: b.correct,
+                note: 'Interactive Reading (Words)'
+              });
+            }
+            recordedChecks.push({ stage: `Blank #${i + 1}`, ok, expected: b.correct });
+            const wordHtml = ok ? escapeHtml(b.correct) : `<span class="det-rc-missed-word">${escapeHtml(b.correct)}</span>`;
+            return `${i + 1}. ${wordHtml}`;
+          });
+          if (hits < blanks.length) syncChrome();
+
+          const outcome = hits === blanks.length ? 'correct' : (hits > 0 ? 'partial' : 'wrong');
+          showFeedbackDrawer({
+            outcome,
+            answerHtml: answerParts.join('&nbsp;&nbsp;'),
+            isTimedOut: timedOut,
+            expandable: outcome !== 'correct'
+          });
+        };
+
+        activeStageSubmit = handleSubmit;
+        submitBtn.addEventListener('click', () => handleSubmit(false));
+      }
+
+      // QUESTION 2: Select the best sentence to complete the passage
+      else if (stageIdx === 1) {
+        let selectedSent = '';
+        let menuOpen = false;
+        const opts = item.stage2?.options || [];
+
+        mountEl.innerHTML = `
+          <div class="det-fb-wrap">
+            <h3 class="det-fb-prompt">Select the best sentence to complete the passage</h3>
+            <div class="det-ir-passage">
+              <div>${escapeHtml(item.stage2?.before || '')}</div>
+              <div class="det-ir-sent-wrap" id="dp-ir-s2-wrap">
+                <button type="button" id="dp-ir-s2-btn" class="det-ir-sent-btn">
+                  <span id="dp-ir-s2-lbl">Select a sentence</span>
+                  <span class="det-ir-chev">${chevDownSvg}</span>
+                </button>
+                <div id="dp-ir-s2-menu" class="det-ir-sent-menu hidden">
+                  ${opts.map((opt, idx) => `
+                    <button type="button" class="det-ir-menu-item" data-s2-idx="${idx}">${escapeHtml(opt)}</button>
+                  `).join('')}
+                </div>
+              </div>
+              <div>${escapeHtml(item.stage2?.after || '')}</div>
+            </div>
+          </div>
+        `;
+
+        submitBarEl.innerHTML = `
+          <div class="det-fb-submit-inner">
+            <button type="button" id="dp-ir-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        `;
+
+        const s2Btn = mountEl.querySelector('#dp-ir-s2-btn');
+        const s2Lbl = mountEl.querySelector('#dp-ir-s2-lbl');
+        const s2Menu = mountEl.querySelector('#dp-ir-s2-menu');
+        const submitBtn = submitBarEl.querySelector('#dp-ir-submit');
+
+        const closeSentMenu = () => {
+          menuOpen = false;
+          s2Btn?.classList.remove('open');
+          s2Menu?.classList.add('hidden');
+        };
+
+        const docClick = (e) => {
+          if (!e.target.closest?.('#dp-ir-s2-wrap')) closeSentMenu();
+        };
+        document.addEventListener('click', docClick);
+        stageCleanup = () => document.removeEventListener('click', docClick);
+
+        s2Btn.addEventListener('click', (e) => {
+          if (stageSubmitted) return;
+          e.stopPropagation();
+          menuOpen = !menuOpen;
+          s2Btn.classList.toggle('open', menuOpen);
+          s2Menu.classList.toggle('hidden', !menuOpen);
+        });
+
+        mountEl.querySelectorAll('[data-s2-idx]').forEach((optBtn) => {
+          optBtn.addEventListener('click', (e) => {
+            if (stageSubmitted) return;
+            e.stopPropagation();
+            selectedSent = opts[Number(optBtn.dataset.s2Idx)] || '';
+            s2Lbl.textContent = selectedSent;
+            s2Btn.classList.add('filled');
+            mountEl.querySelectorAll('[data-s2-idx]').forEach((o) => {
+              o.classList.toggle('selected', o === optBtn);
+            });
+            closeSentMenu();
+            submitBtn.disabled = !selectedSent;
+          });
+        });
+
+        const handleSubmit = (timedOut = false) => {
+          if (stageSubmitted || aborted) return;
+          stageSubmitted = true;
+          timerPaused = true;
+          activeStageSubmit = null;
+          closeSentMenu();
+
+          s2Btn.disabled = true;
+          submitBarEl.classList.add('hidden');
+
+          const expected = item.stage2?.correct || '';
+          const ok = selectedSent === expected;
+          if (ok) {
+            earnedChecks += 1;
+          } else {
+            addMistake({
+              type: 'interactive_reading',
+              prompt: `${item.title || 'Interactive Reading'} — Complete the Passage`,
+              userAnswer: selectedSent || '(no answer)',
+              correctAnswer: expected,
+              note: 'Interactive Reading (Passage)'
+            });
+            syncChrome();
+          }
+          recordedChecks.push({ stage: 'Complete the Passage', ok, expected });
+
+          showFeedbackDrawer({
+            outcome: ok ? 'correct' : 'wrong',
+            answerHtml: escapeHtml(expected),
+            isTimedOut: timedOut,
+            expandable: false
+          });
+        };
+
+        activeStageSubmit = handleSubmit;
+        submitBtn.addEventListener('click', () => handleSubmit(false));
+      }
+
+      // QUESTION 3 & 4: Highlight text in the passage to answer the question below
+      else if (stageIdx === 2 || stageIdx === 3) {
+        const qKey = stageIdx === 2 ? 'stage3a' : 'stage3b';
+        const qObj = item[qKey] || {};
+        const sentences = item.fullSentences || [];
+        const words = [];
+
+        const groupedHtml = [];
+        for (let sStart = 0; sStart < sentences.length; sStart += 4) {
+          const slice = sentences.slice(sStart, sStart + 4);
+          const pInner = slice.map((sent, offset) => {
+            const sIdx = sStart + offset;
+            const tokens = String(sent || '').split(/(\s+)/);
+            const sentHtml = tokens.map((tok) => {
+              if (!tok || /^\s+$/.test(tok)) return escapeHtml(tok || ' ');
+              const wIdx = words.length;
+              words.push({ wIdx, sIdx, text: tok });
+              return `<span class="det-ir-word" data-w-idx="${wIdx}" data-s-idx="${sIdx}">${escapeHtml(tok)}</span>`;
+            }).join('');
+            return `${sentHtml} `;
+          }).join('');
+          groupedHtml.push(`<p style="margin:0 0 14px;">${pInner.trim()}</p>`);
+        }
+
+        mountEl.innerHTML = `
+          <div class="det-fb-wrap">
+            <h3 class="det-fb-prompt" style="margin-bottom:14px;">Highlight text in the passage to answer the question below</h3>
+            <p class="det-ir-hl-question">${escapeHtml(qObj.question || '')}</p>
+            <div id="dp-ir-hl-preview" class="det-ir-hl-preview empty">Tap the start and end of the text to highlight</div>
+            <div class="det-ir-hl-divider"></div>
+            <div id="dp-ir-hl-passage" class="det-ir-hl-passage">${groupedHtml.join('')}</div>
+          </div>
+        `;
+
+        submitBarEl.innerHTML = `
+          <div class="det-fb-submit-inner">
+            <button type="button" id="dp-ir-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        `;
+
+        const previewEl = mountEl.querySelector('#dp-ir-hl-preview');
+        const submitBtn = submitBarEl.querySelector('#dp-ir-submit');
+        const wordEls = Array.from(mountEl.querySelectorAll('.det-ir-word'));
+
+        let anchorIdx = null;
+        let rangeStart = null;
+        let rangeEnd = null;
+        let dragAnchor = null;
+        let isDragging = false;
+        let suppressNextClick = false;
+
+        const syncHighlightUi = () => {
+          wordEls.forEach((el, idx) => {
+            const inRange = rangeStart !== null && idx >= rangeStart && idx <= rangeEnd;
+            const isAnchor = rangeStart === null && anchorIdx === idx;
+            el.classList.toggle('hl', inRange);
+            el.classList.toggle('hl-anchor', isAnchor);
+            el.classList.toggle('hl-start', (rangeStart !== null && idx === rangeStart) || isAnchor);
+            el.classList.toggle('hl-end', (rangeEnd !== null && idx === rangeEnd) || isAnchor);
+          });
+
+          if (rangeStart !== null && rangeEnd !== null) {
+            const selectedText = words.slice(rangeStart, rangeEnd + 1).map((w) => w.text).join(' ');
+            previewEl.classList.remove('empty');
+            previewEl.textContent = selectedText;
+            submitBtn.disabled = false;
+          } else {
+            previewEl.classList.add('empty');
+            previewEl.textContent = 'Tap the start and end of the text to highlight';
+            submitBtn.disabled = true;
+          }
+        };
+
+        wordEls.forEach((el) => {
+          el.addEventListener('mousedown', (e) => {
+            if (stageSubmitted || e.button !== 0) return;
+            dragAnchor = Number(el.dataset.wIdx);
+            isDragging = true;
+            suppressNextClick = false;
+          });
+
+          el.addEventListener('mouseover', () => {
+            if (stageSubmitted || !isDragging || dragAnchor === null) return;
+            const cur = Number(el.dataset.wIdx);
+            if (cur !== dragAnchor) {
+              suppressNextClick = true;
+              anchorIdx = null;
+              rangeStart = Math.min(dragAnchor, cur);
+              rangeEnd = Math.max(dragAnchor, cur);
+              syncHighlightUi();
+            }
+          });
+
+          el.addEventListener('click', () => {
+            if (stageSubmitted) return;
+            if (suppressNextClick) {
+              suppressNextClick = false;
+              return;
+            }
+            const clicked = Number(el.dataset.wIdx);
+            if (anchorIdx === null) {
+              anchorIdx = clicked;
+              rangeStart = null;
+              rangeEnd = null;
+            } else {
+              rangeStart = Math.min(anchorIdx, clicked);
+              rangeEnd = Math.max(anchorIdx, clicked);
+              anchorIdx = null;
+            }
+            syncHighlightUi();
+          });
+        });
+
+        const docMouseUp = () => {
+          isDragging = false;
+          dragAnchor = null;
+          if (suppressNextClick) {
+            setTimeout(() => { suppressNextClick = false; }, 0);
+          }
+        };
+        document.addEventListener('mouseup', docMouseUp);
+        stageCleanup = () => document.removeEventListener('mouseup', docMouseUp);
+
+        const handleSubmit = (timedOut = false) => {
+          if (stageSubmitted || aborted) return;
+          stageSubmitted = true;
+          timerPaused = true;
+          activeStageSubmit = null;
+          isDragging = false;
+          submitBarEl.classList.add('hidden');
+
+          const targetIdx = Number(qObj.correctSentenceIndex);
+          const expectedSentence = sentences[targetIdx] || '';
+          const targetWords = words.filter((w) => w.sIdx === targetIdx);
+          const selectedWords = (rangeStart !== null && rangeEnd !== null) ? words.slice(rangeStart, rangeEnd + 1) : [];
+          const overlap = selectedWords.filter((w) => w.sIdx === targetIdx).length;
+          const recall = targetWords.length ? overlap / targetWords.length : 0;
+          const precision = selectedWords.length ? overlap / selectedWords.length : 0;
+
+          let outcome = 'wrong';
+          if (recall >= 0.72 && precision >= 0.62) {
+            outcome = 'correct';
+            earnedChecks += 1;
+          } else if (overlap >= 3 && recall >= 0.35) {
+            outcome = 'partial';
+            earnedChecks += 0.5;
+          }
+
+          const ok = outcome === 'correct';
+          if (!ok) {
+            addMistake({
+              type: 'interactive_reading',
+              prompt: qObj.question || `${item.title} — Highlight`,
+              userAnswer: selectedWords.map((w) => w.text).join(' ') || '(no highlight)',
+              correctAnswer: expectedSentence,
+              note: 'Interactive Reading (Highlight)'
+            });
+            syncChrome();
+          }
+          recordedChecks.push({ stage: `Highlight ${stageIdx === 2 ? '1' : '2'}`, ok, expected: expectedSentence });
+
+          showFeedbackDrawer({
+            outcome,
+            answerHtml: escapeHtml(expectedSentence),
+            isTimedOut: timedOut,
+            expandable: false
+          });
+        };
+
+        activeStageSubmit = handleSubmit;
+        submitBtn.addEventListener('click', () => handleSubmit(false));
+      }
+
+      // QUESTION 5 & 6: Identify the Idea / Title the Passage
+      else {
+        const isIdea = stageIdx === 4;
+        const qData = isIdea ? item.stage4 : item.stage5;
+        const opts = qData?.options || [];
+        let chosenOpt = '';
+
+        mountEl.innerHTML = `
+          <div class="det-fb-wrap">
+            <h3 class="det-fb-prompt">${isIdea ? 'Select the idea that is expressed in the passage' : 'Select the best title for the passage'}</h3>
+            <div class="det-ir-radio-list">
+              ${opts.map((opt, idx) => `
+                <button type="button" class="det-ir-radio-card" data-ir-radio="${idx}">
+                  <span class="det-ir-radio-dot"></span>
+                  <span>${escapeHtml(opt)}</span>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        `;
+
+        submitBarEl.innerHTML = `
+          <div class="det-ir-submit-stack">
+            <button type="button" id="dp-ir-view-passage" class="det-btn-outline">VIEW PASSAGE</button>
+            <button type="button" id="dp-ir-submit" class="det-btn-blue" disabled>SUBMIT</button>
+          </div>
+        `;
+
+        const submitBtn = submitBarEl.querySelector('#dp-ir-submit');
+        submitBarEl.querySelector('#dp-ir-view-passage').addEventListener('click', openPassageModal);
+
+        mountEl.querySelectorAll('[data-ir-radio]').forEach((cardBtn) => {
+          cardBtn.addEventListener('click', () => {
+            if (stageSubmitted) return;
+            chosenOpt = opts[Number(cardBtn.dataset.irRadio)] || '';
+            mountEl.querySelectorAll('[data-ir-radio]').forEach((b) => {
+              b.classList.toggle('selected', b === cardBtn);
+            });
+            submitBtn.disabled = !chosenOpt;
+          });
+        });
+
+        const handleSubmit = (timedOut = false) => {
+          if (stageSubmitted || aborted) return;
+          stageSubmitted = true;
+          timerPaused = true;
+          activeStageSubmit = null;
+
+          mountEl.querySelectorAll('[data-ir-radio]').forEach((b) => { b.disabled = true; });
+          submitBarEl.classList.add('hidden');
+          modalWrapEl.classList.add('hidden');
+
+          const expected = qData?.correct || '';
+          const ok = chosenOpt === expected;
+          if (ok) {
+            earnedChecks += 1;
+          } else {
+            addMistake({
+              type: 'interactive_reading',
+              prompt: isIdea ? 'Identify the Idea' : 'Title the Passage',
+              userAnswer: chosenOpt || '(no answer)',
+              correctAnswer: expected,
+              note: `Interactive Reading (${item.title || 'Passage'})`
+            });
+            syncChrome();
+          }
+          recordedChecks.push({ stage: isIdea ? 'Identify the Idea' : 'Title the Passage', ok, expected });
+
+          showFeedbackDrawer({
+            outcome: ok ? 'correct' : 'wrong',
+            answerHtml: escapeHtml(expected),
+            isTimedOut: timedOut,
+            expandable: false
+          });
+        };
+
+        activeStageSubmit = handleSubmit;
+        submitBtn.addEventListener('click', () => handleSubmit(false));
+      }
+    };
+
+    renderStage();
+  };
+
+  Promise.all([minDelay, loadPassagePromise]).then(() => {
+    if (!aborted) launchArena();
+  });
+}
+
 function startPracticeSession(typeId, useAi) {
   if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
   if (typeId === 'read_select') {
@@ -1935,6 +2859,10 @@ function startPracticeSession(typeId, useAi) {
   }
   if (typeId === 'read_complete') {
     startReadCompletePractice(useAi);
+    return;
+  }
+  if (typeId === 'interactive_reading') {
+    startInteractiveReadingPractice(useAi);
     return;
   }
   unlockSpeech();
