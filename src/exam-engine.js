@@ -1,7 +1,7 @@
 import { getQuestionTypeMeta, getBankCapacity, pickQuestionFromBank } from './questions-bank.js';
 import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
 import { computeSubscores, nextAdaptiveDifficulty, scoreToIelts, scoreToCefr } from './scoring.js';
-import { speakText, AudioRecorder, WebcamMonitor } from './speech.js';
+import { speakText, unlockSpeech, AudioRecorder, WebcamMonitor } from './speech.js';
 import { generateQuestion } from './gemini.js';
 import {
   recordExamReport,
@@ -184,6 +184,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
             <div style="font-weight:800;margin-bottom:10px;">1. Audio &amp; Microphone</div>
             <div style="display:flex;flex-direction:column;gap:10px;">
               <button type="button" id="chk-speaker" class="btn btn-secondary btn-sm">🔊 ${escapeHtml(t(lang, 'testSpeaker'))}</button>
+              <div id="chk-speaker-msg" style="font-size:12px;color:var(--ink-muted);"></div>
               <button type="button" id="chk-mic" class="btn btn-secondary btn-sm">🎙️ ${escapeHtml(t(lang, 'testMic'))}</button>
               <div class="mic-meter-wrap" style="margin:2px 0;"><div id="chk-mic-fill" class="mic-meter-fill"></div></div>
               <div id="chk-mic-msg" style="font-size:12px;color:var(--ink-muted);"></div>
@@ -220,9 +221,33 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
   `;
 
   container.querySelector('#chk-speaker').addEventListener('click', () => {
+    const spkMsg = container.querySelector('#chk-speaker-msg');
+    unlockSpeech();
+    if (spkMsg) {
+      spkMsg.style.color = 'var(--ink-muted)';
+      spkMsg.textContent = lang === 'uz' ? '⏳ Ovoz tekshirilmoqda...' : '⏳ Playing test clip...';
+    }
     speakText('Audio check complete. Good luck on your Duolingo English Test simulation.', {
       rate: settings.ttsRate || 1.0,
-      voiceName: settings.ttsVoice || ''
+      voiceName: settings.ttsVoice || '',
+      onStart: () => {
+        if (spkMsg) {
+          spkMsg.style.color = '#187A38';
+          spkMsg.textContent = lang === 'uz' ? '🔊 Ovoz eshitilmoqda...' : '🔊 Playing...';
+        }
+      },
+      onEnd: () => {
+        if (spkMsg) {
+          spkMsg.style.color = '#187A38';
+          spkMsg.textContent = lang === 'uz' ? '✓ Dinamik ishlayapti!' : '✓ Speaker OK!';
+        }
+      },
+      onError: () => {
+        if (spkMsg) {
+          spkMsg.style.color = 'var(--red)';
+          spkMsg.textContent = lang === 'uz' ? '✕ Brauzer ovozini yoqib bo‘lmadi.' : '✕ Browser audio blocked/unavailable.';
+        }
+      }
     });
   });
 
@@ -277,6 +302,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
   });
 
   container.querySelector('#chk-start').addEventListener('click', () => {
+    unlockSpeech();
     if (testMicRec?.isRecording) testMicRec.abort();
     enableProctor = container.querySelector('#chk-proctor-toggle').checked;
     if (document.documentElement.requestFullscreen) {
@@ -473,7 +499,10 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         onImmediateSubmit: qType === 'read_select' ? (val) => setTimeout(() => submitCurrent(val), 180) : undefined
       });
 
-      card.querySelector('#ar-next-btn').addEventListener('click', () => submitCurrent());
+      card.querySelector('#ar-next-btn').addEventListener('click', () => {
+        unlockSpeech();
+        submitCurrent();
+      });
 
       // Start countdown timer (prep + speaking time for speaking tasks)
       const totalSec = (item.prepSec || meta.prepSec || 0) + (meta.durationSec || 60);

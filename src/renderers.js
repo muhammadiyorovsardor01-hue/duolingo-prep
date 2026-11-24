@@ -212,7 +212,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
         <div style="display:flex;align-items:center;gap:14px;">
           <button type="button" id="lt-play-btn" class="audio-play-btn" title="Play audio">▶</button>
           <div>
-            <div style="font-weight:800;font-size:15px;">Play Sentence Audio</div>
+            <div id="lt-status" style="font-weight:800;font-size:15px;">Play Sentence Audio</div>
             <div id="lt-plays-left" style="font-size:13px;color:var(--ink-muted);">Replays remaining: <strong>${playsLeft}</strong></div>
           </div>
         </div>
@@ -224,36 +224,53 @@ export function mountQuestionRenderer(container, item, options = {}) {
     `;
 
     const playBtn = container.querySelector('#lt-play-btn');
+    const statusLabel = container.querySelector('#lt-status');
     const playsLabel = container.querySelector('#lt-plays-left');
     const eq = container.querySelector('#lt-eq');
     const textarea = container.querySelector('#lt-input');
 
+    const updatePlaysUi = () => {
+      playsLabel.innerHTML = `Replays remaining: <strong>${playsLeft}</strong>`;
+      playBtn.disabled = playsLeft <= 0 || isPlaying;
+    };
+
     const playClip = () => {
       if (playsLeft <= 0 || isPlaying) return;
-      playsLeft -= 1;
-      playsLabel.innerHTML = `Replays remaining: <strong>${playsLeft}</strong>`;
-      if (playsLeft <= 0) playBtn.disabled = true;
+      let consumed = false;
+      isPlaying = true;
+      statusLabel.textContent = lang === 'uz' ? '⏳ Audio yuklanmoqda...' : '⏳ Starting audio...';
+      updatePlaysUi();
+
       speakText(item.sentence, {
         rate: settings.ttsRate || 1.0,
         voiceName: settings.ttsVoice || '',
         onStart: () => {
-          isPlaying = true;
+          if (!consumed) {
+            consumed = true;
+            playsLeft = Math.max(0, playsLeft - 1);
+          }
+          statusLabel.textContent = lang === 'uz' ? '🔊 Eshiting va yozing...' : '🔊 Playing audio...';
           eq.classList.add('playing');
+          updatePlaysUi();
         },
         onEnd: () => {
           isPlaying = false;
           eq.classList.remove('playing');
+          statusLabel.textContent = 'Play Sentence Audio';
+          updatePlaysUi();
         },
         onError: () => {
           isPlaying = false;
           eq.classList.remove('playing');
+          statusLabel.textContent = lang === 'uz' ? '👆 Eshitish uchun ▶ tugmasini bosing' : '👆 Click ▶ to play audio';
+          updatePlaysUi();
         }
       });
     };
 
     playBtn.addEventListener('click', playClip);
     setTimeout(() => textarea.focus(), 60);
-    setTimeout(() => playClip(), 250);
+    setTimeout(() => playClip(), 200);
     registerCleanup(() => stopSpeaking());
     getAnswer = () => textarea.value;
   }
@@ -550,7 +567,10 @@ export function mountQuestionRenderer(container, item, options = {}) {
           <div class="audio-box" style="padding:14px 18px;margin-bottom:14px;">
             <div style="display:flex;align-items:center;gap:12px;">
               <button type="button" id="il-play" class="audio-play-btn" style="width:44px;height:44px;font-size:18px;">▶</button>
-              <span style="font-weight:700;font-size:14px;">${lang === 'uz' ? 'Suhbatdosh gapini eshitish' : 'Play conversation turn'}</span>
+              <div>
+                <div id="il-status" style="font-weight:700;font-size:14px;">${lang === 'uz' ? 'Suhbatdosh gapini eshitish' : 'Play conversation turn'}</div>
+                <div id="il-plays" style="font-size:12px;color:var(--ink-muted);">Replays: <strong>${2 - playsCurrent}</strong></div>
+              </div>
             </div>
             <div id="il-eq" class="eq-bars"><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div></div>
           </div>
@@ -562,21 +582,52 @@ export function mountQuestionRenderer(container, item, options = {}) {
         `;
 
         const playBtn = container.querySelector('#il-play');
+        const statusEl = container.querySelector('#il-status');
+        const playsEl = container.querySelector('#il-plays');
         const eq = container.querySelector('#il-eq');
+        let isTurnPlaying = false;
+
+        const syncTurnUi = () => {
+          const left = Math.max(0, 2 - playsCurrent);
+          playsEl.innerHTML = `Replays: <strong>${left}</strong>`;
+          playBtn.disabled = left <= 0 || isTurnPlaying;
+        };
+
         const playTurn = () => {
-          if (playsCurrent >= 2) return;
-          playsCurrent += 1;
-          if (playsCurrent >= 2) playBtn.disabled = true;
+          if (playsCurrent >= 2 || isTurnPlaying) return;
+          let consumed = false;
+          isTurnPlaying = true;
+          statusEl.textContent = lang === 'uz' ? '⏳ Audio yuklanmoqda...' : '⏳ Starting audio...';
+          syncTurnUi();
+
           speakText(currentTurn.audioText, {
             rate: settings.ttsRate || 1.0,
             voiceName: settings.ttsVoice || '',
-            onStart: () => eq.classList.add('playing'),
-            onEnd: () => eq.classList.remove('playing'),
-            onError: () => eq.classList.remove('playing')
+            onStart: () => {
+              if (!consumed) {
+                consumed = true;
+                playsCurrent += 1;
+              }
+              statusEl.textContent = lang === 'uz' ? '🔊 Eshiting...' : '🔊 Playing audio...';
+              eq.classList.add('playing');
+              syncTurnUi();
+            },
+            onEnd: () => {
+              isTurnPlaying = false;
+              eq.classList.remove('playing');
+              statusEl.textContent = lang === 'uz' ? 'Suhbatdosh gapini eshitish' : 'Play conversation turn';
+              syncTurnUi();
+            },
+            onError: () => {
+              isTurnPlaying = false;
+              eq.classList.remove('playing');
+              statusEl.textContent = lang === 'uz' ? '👆 Eshitish uchun ▶ tugmasini bosing' : '👆 Click ▶ to play audio';
+              syncTurnUi();
+            }
           });
         };
         playBtn.addEventListener('click', playTurn);
-        setTimeout(() => playTurn(), 180);
+        setTimeout(() => playTurn(), 160);
 
         container.querySelectorAll('[data-il-opt]').forEach((btn) => {
           btn.addEventListener('click', () => {

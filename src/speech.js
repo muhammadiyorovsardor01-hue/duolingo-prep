@@ -1,3 +1,19 @@
+let activeUtterance = null;
+let speakToken = 0;
+let pendingSpeakTimer = null;
+let startWatchdogTimer = null;
+
+function clearTimers() {
+  if (pendingSpeakTimer) {
+    clearTimeout(pendingSpeakTimer);
+    pendingSpeakTimer = null;
+  }
+  if (startWatchdogTimer) {
+    clearTimeout(startWatchdogTimer);
+    startWatchdogTimer = null;
+  }
+}
+
 export function getEnglishVoices() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
     return [];
@@ -6,10 +22,50 @@ export function getEnglishVoices() {
   return voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith('en'));
 }
 
+export function unlockSpeech() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    const synth = window.speechSynthesis;
+    synth.getVoices();
+    if (synth.paused) {
+      synth.resume();
+    }
+    // Silent warm-up utterance inside user gesture so subsequent async turns stay unlocked
+    if (!synth.speaking && !synth.pending) {
+      const warm = new SpeechSynthesisUtterance(' ');
+      warm.lang = 'en-US';
+      warm.volume = 0;
+      warm.rate = 2;
+      synth.speak(warm);
+    }
+  } catch {}
+}
+
 export function stopSpeaking() {
+  speakToken += 1;
+  clearTimers();
+  activeUtterance = null;
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
   }
+}
+
+function selectReliableVoice(voiceName) {
+  const voices = getEnglishVoices();
+  if (!voices.length) return null;
+  if (voiceName) {
+    const exact = voices.find((v) => v.name === voiceName);
+    if (exact) return exact;
+  }
+  // Prefer reliable local OS voices over network-dependent Google voices
+  const localEnUs = voices.find((v) => v.localService && /en[-_]?us/i.test(v.lang));
+  if (localEnUs) return localEnUs;
+  const localEn = voices.find((v) => v.localService);
+  if (localEn) return localEn;
+  const anyEnUs = voices.find((v) => /en[-_]?us/i.test(v.lang));
+  return anyEnUs || voices[0];
 }
 
 export function speakText(text, { rate = 1.0, voiceName = '', onStart, onEnd, onError } = {}) {
@@ -17,25 +73,101 @@ export function speakText(text, { rate = 1.0, voiceName = '', onStart, onEnd, on
     onError?.('Speech synthesis is not supported in this browser.');
     return;
   }
-  stopSpeaking();
-  const utter = new SpeechSynthesisUtterance(String(text || ''));
-  utter.lang = 'en-US';
-  utter.rate = Math.max(0.7, Math.min(1.4, Number(rate) || 1.0));
-
-  const voices = getEnglishVoices();
-  if (voiceName) {
-    const match = voices.find((v) => v.name === voiceName);
-    if (match) utter.voice = match;
-  } else if (voices.length > 0) {
-    const preferred = voices.find((v) => /natural|google|samantha|aria|guy|en-us/i.test(v.name)) || voices[0];
-    utter.voice = preferred;
+  const cleanText = String(text || '').trim();
+  if (!cleanText) {
+    onError?.('Empty audio text');
+    return;
   }
 
-  utter.onstart = () => onStart?.();
-  utter.onend = () => onEnd?.();
-  utter.onerror = (ev) => onError?.(ev?.error || 'Audio playback error');
+  const synth = window.speechSynthesis;
+  const wasBusy = synth.speaking || synth.pending;
 
-  window.speechSynthesis.speak(utter);
+  speakToken += 1;
+  const myToken = speakToken;
+  clearTimers();
+  activeUtterance = null;
+
+  if (wasBusy) {
+    try {
+      synth.cancel();
+    } catch {}
+  }
+
+  const launchUtterance = (useSystemDefault = false) => {
+    if (myToken !== speakToken) return;
+    const utter = new SpeechSynthesisUtterance(cleanText);
+    utter.lang = 'en-US';
+    utter.rate = Math.max(0.7, Math.min(1.4, Number(rate) || 1.0));
+    utter.volume = 1.0;
+
+    if (!useSystemDefault) {
+      const chosen = selectReliableVoice(voiceName);
+      if (chosen) utter.voice = chosen;
+    }
+
+    let started = false;
+    activeUtterance = utter;
+
+    utter.onstart = () => {
+      if (myToken !== speakToken) return;
+      started = true;
+      if (startWatchdogTimer) {
+        clearTimeout(startWatchdogTimer);
+        startWatchdogTimer = null;
+      }
+      onStart?.();
+    };
+
+    utter.onend = () => {
+      if (myToken !== speakToken) return;
+      clearTimers();
+      activeUtterance = null;
+      onEnd?.();
+    };
+
+    utter.onerror = (ev) => {
+      if (myToken !== speakToken) return;
+      if (ev?.error === 'interrupted' || ev?.error === 'canceled') return;
+      clearTimers();
+      activeUtterance = null;
+      if (!useSystemDefault && !started) {
+        launchUtterance(true);
+        return;
+      }
+      onError?.(ev?.error || 'Audio playback error');
+    };
+
+    try {
+      if (synth.paused) synth.resume();
+      synth.speak(utter);
+      if (synth.paused) synth.resume();
+    } catch (err) {
+      activeUtterance = null;
+      onError?.(err?.message || 'Speech playback failed');
+      return;
+    }
+
+    // Watchdog: if onstart never fires within 1200ms, retry once with default OS voice then report blocked
+    startWatchdogTimer = setTimeout(() => {
+      if (myToken !== speakToken || started) return;
+      try {
+        synth.cancel();
+      } catch {}
+      activeUtterance = null;
+      if (!useSystemDefault) {
+        pendingSpeakTimer = setTimeout(() => launchUtterance(true), 60);
+      } else {
+        onError?.('playback_blocked');
+      }
+    }, 1200);
+  };
+
+  if (wasBusy) {
+    // 60ms delay prevents Chromium cancel() from dropping the newly queued utterance
+    pendingSpeakTimer = setTimeout(() => launchUtterance(false), 60);
+  } else {
+    launchUtterance(false);
+  }
 }
 
 function blobToBase64(blob) {

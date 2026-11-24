@@ -26,7 +26,7 @@ import {
 } from './questions-bank.js';
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
-import { getEnglishVoices, speakText } from './speech.js';
+import { getEnglishVoices, speakText, stopSpeaking, unlockSpeech } from './speech.js';
 import { playCorrectSound, playWrongSound, playCompleteSound, playTimeoutSound } from './sounds.js';
 import {
   mountQuestionRenderer,
@@ -489,6 +489,7 @@ function getObjectiveFeedbackDetail(item, result) {
 
 function startPracticeSession(typeId, useAi) {
   if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
+  unlockSpeech();
 
   const meta = getQuestionTypeMeta(typeId);
   const totalItems = meta.sessionLength || 1;
@@ -810,6 +811,7 @@ function startPracticeSession(typeId, useAi) {
 
     const advanceToNext = () => {
       if (aborted) return;
+      if (typeId !== 'read_select') unlockSpeech();
       clearItemTimers();
       currentIndex += 1;
       loadItem();
@@ -948,7 +950,10 @@ function startPracticeSession(typeId, useAi) {
       onImmediateSubmit: typeId === 'read_select' ? (val) => handleSubmit(val, false) : undefined
     });
 
-    bottomBar.querySelector('#dp-submit')?.addEventListener('click', () => handleSubmit());
+    bottomBar.querySelector('#dp-submit')?.addEventListener('click', () => {
+      unlockSpeech();
+      handleSubmit();
+    });
 
     itemTimerId = setInterval(() => {
       leftSec -= 1;
@@ -966,17 +971,6 @@ function startPracticeSession(typeId, useAi) {
 function renderMistakesView() {
   const state = loadState();
   const lang = state.settings.uiLang || 'uz';
-
-  const items = state.mistakes.filter((m) => {
-    if (mistakeFilter === 'active' && m.mastered) return false;
-    if (mistakeFilter === 'mastered' && !m.mastered) return false;
-    if (mistakeQuery.trim()) {
-      const q = mistakeQuery.toLowerCase();
-      return (m.prompt + m.userAnswer + m.correctAnswer + m.note).toLowerCase().includes(q);
-    }
-    return true;
-  });
-
   const activeItems = state.mistakes.filter((m) => !m.mastered);
 
   mainEl.innerHTML = `
@@ -997,10 +991,27 @@ function renderMistakesView() {
       <input id="mk-search" class="det-input" style="max-width:280px;" placeholder="🔍 Search..." value="${escapeHtml(mistakeQuery)}" />
     </div>
 
-    <div id="mk-drill-slot"></div>
+    <div id="mk-list-slot"></div>
+  `;
 
-    <div>
-      ${items.length === 0 ? `<div class="card" style="text-align:center;color:var(--ink-muted);padding:34px;">${escapeHtml(t(lang, 'noMistakes'))}</div>` : items.map((m) => `
+  const renderMistakeList = () => {
+    const curState = loadState();
+    const listSlot = mainEl.querySelector('#mk-list-slot');
+    if (!listSlot) return;
+
+    const filtered = curState.mistakes.filter((m) => {
+      if (mistakeFilter === 'active' && m.mastered) return false;
+      if (mistakeFilter === 'mastered' && !m.mastered) return false;
+      if (mistakeQuery.trim()) {
+        const q = mistakeQuery.toLowerCase();
+        return (m.prompt + m.userAnswer + m.correctAnswer + m.note).toLowerCase().includes(q);
+      }
+      return true;
+    });
+
+    listSlot.innerHTML = filtered.length === 0
+      ? `<div class="card" style="text-align:center;color:var(--ink-muted);padding:34px;">${escapeHtml(t(lang, 'noMistakes'))}</div>`
+      : filtered.map((m) => `
         <div class="mistake-item ${m.mastered ? 'mastered' : ''}">
           <div>
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
@@ -1018,9 +1029,26 @@ function renderMistakesView() {
             <button type="button" class="btn btn-danger btn-sm" data-mk-del="${m.id}">✕</button>
           </div>
         </div>
-      `).join('')}
-    </div>
-  `;
+      `).join('');
+
+    listSlot.querySelectorAll('[data-mk-toggle]').forEach((b) => {
+      b.addEventListener('click', () => {
+        toggleMistakeMastered(b.dataset.mkToggle);
+        syncChrome();
+        renderMistakesView();
+      });
+    });
+
+    listSlot.querySelectorAll('[data-mk-del]').forEach((b) => {
+      b.addEventListener('click', () => {
+        deleteMistake(b.dataset.mkDel);
+        syncChrome();
+        renderMistakesView();
+      });
+    });
+  };
+
+  renderMistakeList();
 
   mainEl.querySelectorAll('[data-mf]').forEach((b) => {
     b.addEventListener('click', () => {
@@ -1031,67 +1059,325 @@ function renderMistakesView() {
 
   mainEl.querySelector('#mk-search').addEventListener('input', (e) => {
     mistakeQuery = e.target.value;
-    renderMistakesView();
-  });
-
-  mainEl.querySelectorAll('[data-mk-toggle]').forEach((b) => {
-    b.addEventListener('click', () => {
-      toggleMistakeMastered(b.dataset.mkToggle);
-      syncChrome();
-      renderMistakesView();
-    });
-  });
-
-  mainEl.querySelectorAll('[data-mk-del]').forEach((b) => {
-    b.addEventListener('click', () => {
-      deleteMistake(b.dataset.mkDel);
-      syncChrome();
-      renderMistakesView();
-    });
+    renderMistakeList();
   });
 
   mainEl.querySelector('#mk-drill-btn')?.addEventListener('click', () => {
-    let idx = 0;
-    let revealed = false;
-    const slot = mainEl.querySelector('#mk-drill-slot');
-    const drawCard = () => {
-      const card = activeItems[idx];
-      if (!card) {
-        slot.innerHTML = '';
-        return;
+    unlockSpeech();
+    startMistakeDrill();
+  });
+}
+
+function startMistakeDrill() {
+  if (practiceCleanup) { practiceCleanup(); practiceCleanup = null; }
+
+  const state = loadState();
+  const lang = state.settings.uiLang || 'uz';
+  const deck = shuffleArray(state.mistakes.filter((m) => !m.mastered));
+  if (deck.length === 0) {
+    renderMistakesView();
+    return;
+  }
+
+  let idx = 0;
+  let masteredCount = 0;
+  let correctCount = 0;
+  let soundOn = state.settings.soundEnabled !== false;
+  let aborted = false;
+  let activeKeyHandler = null;
+
+  topNavEl?.classList.add('hidden');
+  mainEl?.classList.add('arena-mode');
+
+  mainEl.innerHTML = `
+    <div class="det-practice-shell">
+      <div class="det-practice-topbar">
+        <button type="button" id="md-exit" class="det-exit-btn" title="Exit Drill">✕</button>
+        <div class="det-prog-track"><div id="md-prog-fill" class="det-prog-fill" style="width:0%"></div></div>
+        <span id="md-prog-count" class="det-prog-count">1 / ${deck.length}</span>
+        <span class="tag tag-writing">🃏 Mistake Drill</span>
+        <button type="button" id="md-sound-btn" class="det-sound-btn" title="Toggle Sound">${soundOn ? '🔊' : '🔇'}</button>
+      </div>
+      <div class="det-practice-stage">
+        <div id="md-card" class="det-practice-card"></div>
+      </div>
+      <div id="md-bottom-bar" class="det-feedback-bar"></div>
+    </div>
+  `;
+
+  const clearKey = () => {
+    if (activeKeyHandler) {
+      document.removeEventListener('keydown', activeKeyHandler);
+      activeKeyHandler = null;
+    }
+  };
+
+  practiceCleanup = () => {
+    aborted = true;
+    clearKey();
+    stopSpeaking();
+  };
+
+  mainEl.querySelector('#md-exit').addEventListener('click', () => navigate('mistakes'));
+
+  const soundBtn = mainEl.querySelector('#md-sound-btn');
+  soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? '🔊' : '🔇';
+    updateSettings({ soundEnabled: soundOn });
+  });
+
+  const renderDrillSummary = () => {
+    clearKey();
+    stopSpeaking();
+    topNavEl?.classList.remove('hidden');
+    mainEl?.classList.remove('arena-mode');
+    practiceCleanup = null;
+
+    playCompleteSound(soundOn);
+    const remaining = loadState().mistakes.filter((m) => !m.mastered).length;
+
+    mainEl.innerHTML = `
+      <div class="det-summary-card">
+        <div style="font-size:44px;margin-bottom:8px;">🎯</div>
+        <span class="tag tag-ai">🃏 Mistake Drill</span>
+        <h2 style="margin:10px 0 4px;font-size:25px;font-weight:800;">
+          ${lang === 'uz' ? 'Takrorlash yakunlandi!' : 'Review Session Complete!'}
+        </h2>
+        <p class="page-subtitle" style="margin:0;">
+          ${lang === 'uz' ? 'Xato qilingan so‘z va jumlalarni mustahkamladingiz.' : 'You reviewed all active items in this deck.'}
+        </p>
+
+        <div class="det-summary-grid">
+          <div class="det-summary-stat">
+            <div class="det-summary-stat-val">${deck.length}</div>
+            <div class="det-summary-stat-lbl">${lang === 'uz' ? 'Ko‘rib chiqildi' : 'Reviewed'}</div>
+          </div>
+          <div class="det-summary-stat" style="background:var(--green-soft);border-color:#B7E8C7;">
+            <div class="det-summary-stat-val" style="color:#187A38;">${masteredCount}</div>
+            <div class="det-summary-stat-lbl">${lang === 'uz' ? 'O‘zlashtirildi' : 'Mastered'}</div>
+          </div>
+          <div class="det-summary-stat">
+            <div class="det-summary-stat-val">${remaining}</div>
+            <div class="det-summary-stat-lbl">${lang === 'uz' ? 'Qolgan xatolar' : 'Remaining'}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;">
+          <button type="button" id="mds-back" class="btn btn-secondary">${lang === 'uz' ? 'Xatolar daftariga qaytish' : 'Back to Mistake Bank'}</button>
+          ${remaining > 0 ? `<button type="button" id="mds-again" class="btn btn-primary">🔄 ${lang === 'uz' ? 'Qolganlarini takrorlash' : 'Drill Remaining'}</button>` : ''}
+        </div>
+      </div>
+    `;
+
+    mainEl.querySelector('#mds-back').addEventListener('click', () => navigate('mistakes'));
+    mainEl.querySelector('#mds-again')?.addEventListener('click', () => startMistakeDrill());
+  };
+
+  const renderCard = () => {
+    if (aborted) return;
+    clearKey();
+    stopSpeaking();
+
+    if (idx >= deck.length) {
+      renderDrillSummary();
+      return;
+    }
+
+    const card = deck[idx];
+    const meta = getQuestionTypeMeta(card.type);
+    const cardEl = mainEl.querySelector('#md-card');
+    const bottomBar = mainEl.querySelector('#md-bottom-bar');
+    const progFill = mainEl.querySelector('#md-prog-fill');
+    const progCount = mainEl.querySelector('#md-prog-count');
+
+    if (progFill) progFill.style.width = `${Math.round((idx / deck.length) * 100)}%`;
+    if (progCount) progCount.textContent = `${idx + 1} / ${deck.length}`;
+
+    const advance = () => {
+      idx += 1;
+      renderCard();
+    };
+
+    const masterAndAdvance = () => {
+      if (!card.mastered) {
+        toggleMistakeMastered(card.id);
+        card.mastered = true;
+        masteredCount += 1;
+        syncChrome();
       }
-      slot.innerHTML = `
-        <div class="card" style="margin-bottom:18px;border:2px solid var(--accent);text-align:center;padding:28px;">
-          <div class="tag" style="margin-bottom:10px;">Card ${idx + 1} / ${activeItems.length} · ${escapeHtml(getQuestionTypeMeta(card.type).name)}</div>
-          <h3 style="margin:6px 0 12px;font-size:20px;">${escapeHtml(card.prompt)}</h3>
-          ${revealed ? `
-            <div style="background:var(--green-soft);border-radius:12px;padding:14px;margin-bottom:14px;">
-              <div style="font-weight:800;color:#187A38;font-size:17px;">${escapeHtml(card.correctAnswer)}</div>
-              ${card.note ? `<div style="font-size:13px;color:var(--ink-muted);margin-top:4px;">${escapeHtml(card.note)}</div>` : ''}
-            </div>
-            <div style="display:flex;justify-content:center;gap:10px;">
-              <button type="button" id="fc-master" class="btn btn-success btn-sm">✓ ${escapeHtml(t(lang, 'markMastered'))}</button>
-              <button type="button" id="fc-next" class="btn btn-primary btn-sm">${escapeHtml(t(lang, 'nextQuestion'))} →</button>
-            </div>
-          ` : `
-            <button type="button" id="fc-reveal" class="btn btn-primary">${lang === 'uz' ? 'To‘g‘ri javobni ko‘rish' : 'Reveal Answer'}</button>
-          `}
+      playCorrectSound(soundOn);
+      advance();
+    };
+
+    // Interactive YES/NO mode for Read & Select mistakes
+    if (card.type === 'read_select') {
+      const lowerAns = String(card.correctAnswer || '').toLowerCase();
+      const expectedReal = lowerAns.includes('real') && !lowerAns.includes('not');
+      let locked = false;
+
+      cardEl.innerHTML = `
+        <div style="text-align:center;margin-bottom:8px;"><span class="tag">${meta.icon} ${escapeHtml(meta.name)}</span></div>
+        <h3 class="det-q-prompt">Is this a real English word?</h3>
+        <p class="det-q-hint">${lang === 'uz' ? 'Avval xato qilgan so‘zingizni qayta tekshiring (Y / N)' : 'Test yourself on this missed word (Y / N)'}</p>
+        <div class="word-showcase"><div class="word-showcase-text">${escapeHtml(card.prompt)}</div></div>
+        <div class="yes-no-row">
+          <button type="button" class="choice-tile" data-md-rs="true">✓ YES</button>
+          <button type="button" class="choice-tile" data-md-rs="false">✕ NO</button>
         </div>
       `;
-      slot.querySelector('#fc-reveal')?.addEventListener('click', () => { revealed = true; drawCard(); });
-      slot.querySelector('#fc-next')?.addEventListener('click', () => {
-        idx = (idx + 1) % activeItems.length;
-        revealed = false;
-        drawCard();
+
+      bottomBar.className = 'det-feedback-bar';
+      bottomBar.innerHTML = `
+        <div class="det-fb-inner">
+          <div style="font-size:13px;font-weight:700;color:var(--ink-muted);">⌨️ Y = YES · N = NO</div>
+          <div class="det-fb-actions">
+            <button type="button" id="md-skip" class="btn btn-secondary btn-sm">${lang === 'uz' ? 'Keyingisi →' : 'Skip →'}</button>
+          </div>
+        </div>
+      `;
+      bottomBar.querySelector('#md-skip').addEventListener('click', advance);
+
+      const handlePick = (chosenReal) => {
+        if (locked || aborted) return;
+        locked = true;
+        clearKey();
+
+        const isCorrect = chosenReal === expectedReal;
+        if (isCorrect) {
+          correctCount += 1;
+          playCorrectSound(soundOn);
+        } else {
+          playWrongSound(soundOn);
+        }
+
+        cardEl.querySelectorAll('[data-md-rs]').forEach((b) => {
+          b.disabled = true;
+          const bVal = b.dataset.mdRs === 'true';
+          if (bVal === expectedReal) b.classList.add('correct');
+          else if (bVal === chosenReal && !isCorrect) b.classList.add('wrong');
+        });
+
+        const isLast = idx + 1 >= deck.length;
+        bottomBar.className = `det-feedback-bar ${isCorrect ? 'det-fb-correct' : 'det-fb-wrong'}`;
+        bottomBar.innerHTML = `
+          <div class="det-fb-inner">
+            <div class="det-fb-status">
+              <div class="det-fb-icon">${isCorrect ? '✓' : '✕'}</div>
+              <div>
+                <div class="det-fb-title">${isCorrect ? (lang === 'uz' ? 'To‘g‘ri!' : 'Correct!') : (lang === 'uz' ? 'Xato' : 'Incorrect')}</div>
+                <div class="det-fb-detail">${escapeHtml(card.correctAnswer)}</div>
+              </div>
+            </div>
+            <div class="det-fb-actions">
+              <button type="button" id="md-master" class="btn btn-success btn-sm">✓ ${escapeHtml(t(lang, 'markMastered'))}</button>
+              <button type="button" id="md-next" class="btn btn-primary btn-sm">${isLast ? (lang === 'uz' ? 'Yakunlash →' : 'Finish →') : (lang === 'uz' ? 'Davom etish →' : 'Continue →')}</button>
+            </div>
+          </div>
+        `;
+        bottomBar.querySelector('#md-master').addEventListener('click', masterAndAdvance);
+        bottomBar.querySelector('#md-next').addEventListener('click', advance);
+
+        activeKeyHandler = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            advance();
+          }
+        };
+        document.addEventListener('keydown', activeKeyHandler);
+      };
+
+      cardEl.querySelectorAll('[data-md-rs]').forEach((b) => {
+        b.addEventListener('click', () => handlePick(b.dataset.mdRs === 'true'));
       });
-      slot.querySelector('#fc-master')?.addEventListener('click', () => {
-        toggleMistakeMastered(card.id);
-        syncChrome();
-        renderMistakesView();
+
+      activeKeyHandler = (e) => {
+        const k = e.key.toLowerCase();
+        if (k === 'y' || e.key === 'ArrowLeft') { e.preventDefault(); handlePick(true); }
+        else if (k === 'n' || e.key === 'ArrowRight') { e.preventDefault(); handlePick(false); }
+      };
+      document.addEventListener('keydown', activeKeyHandler);
+      return;
+    }
+
+    // Flashcard Reveal mode for Listen & Type, Fill in the Blanks, Read & Complete, Writing/Speaking fixes
+    let revealed = false;
+    const isListen = card.type === 'listen_type';
+    const settings = loadState().settings;
+
+    const drawRevealCard = () => {
+      cardEl.innerHTML = `
+        <div style="text-align:center;margin-bottom:10px;"><span class="tag">${meta.icon} ${escapeHtml(meta.name)}</span></div>
+        ${isListen ? `
+          <h3 class="det-q-prompt">${lang === 'uz' ? 'Audioni tinglab eslab ko‘ring' : 'Listen and recall the sentence'}</h3>
+          <div class="audio-box" style="margin:14px 0;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <button type="button" id="md-play-audio" class="audio-play-btn" style="width:48px;height:48px;font-size:18px;">▶</button>
+              <span style="font-weight:700;font-size:14px;">${lang === 'uz' ? 'Gapni eshitish' : 'Play Sentence Audio'}</span>
+            </div>
+            <div id="md-eq" class="eq-bars"><div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div></div>
+          </div>
+        ` : `
+          <h3 class="det-q-prompt" style="font-size:19px;">${escapeHtml(card.prompt)}</h3>
+        `}
+        ${card.userAnswer ? `
+          <div style="text-align:center;font-size:13.5px;color:var(--ink-muted);margin:10px 0;">
+            ${lang === 'uz' ? 'Avvalgi javobingiz:' : 'Previous answer:'} <span class="corr-old">${escapeHtml(card.userAnswer)}</span>
+          </div>
+        ` : ''}
+        ${revealed ? `
+          <div style="background:var(--green-soft);border:1px solid #B7E8C7;border-radius:14px;padding:16px 18px;margin-top:14px;text-align:center;">
+            <div style="font-size:11px;font-weight:800;color:#187A38;text-transform:uppercase;margin-bottom:4px;">${lang === 'uz' ? 'To‘g‘ri javob' : 'Correct Answer'}</div>
+            <div style="font-weight:800;color:#166524;font-size:17px;line-height:1.5;">${escapeHtml(card.correctAnswer)}</div>
+            ${card.note ? `<div style="font-size:13px;color:var(--ink-muted);margin-top:6px;">${escapeHtml(card.note)}</div>` : ''}
+          </div>
+        ` : `
+          <div style="text-align:center;margin-top:18px;">
+            <button type="button" id="md-reveal-btn" class="btn btn-primary">👁 ${lang === 'uz' ? 'To‘g‘ri javobni ko‘rish' : 'Reveal Answer'}</button>
+          </div>
+        `}
+      `;
+
+      if (isListen) {
+        const playBtn = cardEl.querySelector('#md-play-audio');
+        const eq = cardEl.querySelector('#md-eq');
+        const playSentence = () => {
+          speakText(card.correctAnswer || card.prompt, {
+            rate: settings.ttsRate || 1.0,
+            voiceName: settings.ttsVoice || '',
+            onStart: () => eq?.classList.add('playing'),
+            onEnd: () => eq?.classList.remove('playing'),
+            onError: () => eq?.classList.remove('playing')
+          });
+        };
+        playBtn?.addEventListener('click', playSentence);
+        if (!revealed) setTimeout(playSentence, 120);
+      }
+
+      cardEl.querySelector('#md-reveal-btn')?.addEventListener('click', () => {
+        revealed = true;
+        drawRevealCard();
       });
+
+      const isLast = idx + 1 >= deck.length;
+      bottomBar.className = 'det-feedback-bar';
+      bottomBar.innerHTML = `
+        <div class="det-fb-inner">
+          <div style="font-size:13px;font-weight:700;color:var(--ink-muted);">${idx + 1} / ${deck.length}</div>
+          <div class="det-fb-actions">
+            <button type="button" id="md-master" class="btn btn-success btn-sm">✓ ${escapeHtml(t(lang, 'markMastered'))}</button>
+            <button type="button" id="md-next" class="btn btn-primary btn-sm">${isLast ? (lang === 'uz' ? 'Yakunlash →' : 'Finish →') : (lang === 'uz' ? 'Keyingisi →' : 'Next →')}</button>
+          </div>
+        </div>
+      `;
+      bottomBar.querySelector('#md-master').addEventListener('click', masterAndAdvance);
+      bottomBar.querySelector('#md-next').addEventListener('click', advance);
     };
-    drawCard();
-  });
+
+    drawRevealCard();
+  };
+
+  renderCard();
 }
 
 // 5. SETTINGS
