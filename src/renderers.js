@@ -1237,17 +1237,27 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
             </div>
           `).join('')}
         </div>
-        ${(fb.corrections || []).length ? `
-          <div style="margin-top:14px;">
-            <div style="font-weight:800;margin-bottom:8px;">${lang === 'uz' ? 'Tuzatishlar va yaxshilash' : 'Corrections & Upgrades'}</div>
-            ${fb.corrections.map((c) => `
-              <div class="correction-item">
-                <div><span class="corr-old">${escapeHtml(c.original)}</span> → <span class="corr-new">${escapeHtml(c.corrected)}</span></div>
-                ${c.explanation ? `<div style="color:var(--ink-muted);font-size:12.5px;margin-top:3px;">${escapeHtml(c.explanation)}</div>` : ''}
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
+        ${(() => {
+          const validFixes = (fb.corrections || []).filter(
+            (c) => String(c?.original || '').trim() || String(c?.corrected || '').trim()
+          );
+          if (!validFixes.length) return '';
+          return `
+            <div style="margin-top:14px;">
+              <div style="font-weight:800;margin-bottom:8px;">${lang === 'uz' ? 'Tuzatishlar va yaxshilash' : 'Corrections & Upgrades'}</div>
+              ${validFixes.map((c) => {
+                const ctxBefore = c.contextBefore ? `<span class="corr-ctx">${escapeHtml(c.contextBefore)}</span>` : '';
+                const ctxAfter = c.contextAfter ? `<span class="corr-ctx">${escapeHtml(c.contextAfter)}</span>` : '';
+                return `
+                  <div class="correction-item">
+                    <div>${ctxBefore}<span class="corr-old">${escapeHtml(c.original)}</span>${ctxAfter}<span class="corr-arrow">→</span>${ctxBefore}<span class="corr-new">${escapeHtml(c.corrected)}</span>${ctxAfter}</div>
+                    ${c.explanation ? `<div style="color:var(--ink-muted);font-size:12.5px;margin-top:4px;">${escapeHtml(c.explanation)}</div>` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        })()}
         ${fb.upgradedVersion || fb.modelAnswer ? `
           <div style="margin-top:14px;background:var(--green-soft);border:1px solid #B7E8C7;border-radius:12px;padding:14px;">
             <div style="font-size:12px;font-weight:800;color:#187A38;margin-bottom:6px;">★ 140+ BAND MODEL RESPONSE</div>

@@ -2,6 +2,121 @@ import { roundDetScore, countWords, levenshtein } from './scoring.js';
 
 const LT_ENDPOINT = 'https://api.languagetool.org/v2/check';
 
+const UNCOUNTABLE_FIXES = {
+  equipments: 'equipment',
+  informations: 'information',
+  advices: 'advice',
+  furnitures: 'furniture',
+  knowledges: 'knowledge',
+  researches: 'research',
+  homeworks: 'homework',
+  luggages: 'luggage',
+  baggages: 'baggage',
+  traffics: 'traffic',
+  softwares: 'software',
+  hardwares: 'hardware',
+  evidences: 'evidence',
+  feedbacks: 'feedback',
+  progresses: 'progress',
+  sceneries: 'scenery',
+  machineries: 'machinery',
+  childrens: 'children',
+  staffs: 'staff'
+};
+
+function matchCasing(template, word) {
+  if (!template) return word;
+  if (template === template.toUpperCase()) return word.toUpperCase();
+  if (template[0] && template[0] === template[0].toUpperCase()) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }
+  return word;
+}
+
+function pickSmartReplacement(original, replacements = []) {
+  const lower = String(original || '').toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(UNCOUNTABLE_FIXES, lower)) {
+    return { value: matchCasing(original, UNCOUNTABLE_FIXES[lower]), isUncountable: true };
+  }
+
+  const values = (replacements || [])
+    .map((r) => String(r?.value || '').trim())
+    .filter(Boolean);
+  if (values.length === 0) {
+    return { value: '', isUncountable: false };
+  }
+
+  const clean = values.find((v) => !(v.endsWith("'") && !original.includes("'")));
+  return { value: clean || values[0], isUncountable: false };
+}
+
+function extractPhraseContext(input, offset, length) {
+  const rawBefore = input.slice(Math.max(0, offset - 42), offset);
+  const rawAfter = input.slice(offset + length, Math.min(input.length, offset + length + 42));
+
+  const segBefore = rawBefore.split(/[.!?\n]/).pop() || '';
+  const segAfter = rawAfter.split(/[.!?\n]/)[0] || '';
+
+  const beforeWords = segBefore.trim().split(/\s+/).filter(Boolean).slice(-2);
+  const afterWords = segAfter.trim().split(/\s+/).filter(Boolean).slice(0, 2);
+
+  const before = beforeWords.length
+    ? `${beforeWords.join(' ')}${/\s$/.test(rawBefore) ? ' ' : ''}`
+    : '';
+  const after = afterWords.length
+    ? `${/^\s/.test(rawAfter) ? ' ' : ''}${afterWords.join(' ')}`
+    : '';
+
+  return { before, after };
+}
+
+function formatCorrectionExplanation(match, original, corrected, isUncountable, lang = 'uz') {
+  if (isUncountable) {
+    return lang === 'uz'
+      ? `"${corrected}" — sanalmaydigan ot, ko‘plik "-s" qo‘shilmaydi.`
+      : `"${corrected}" is an uncountable noun — do not add "-s".`;
+  }
+
+  const ruleId = String(match?.rule?.id || '');
+  const catId = String(match?.rule?.category?.id || '');
+  const shortMsg = String(match?.shortMessage || '').trim();
+  const fullMsg = String(match?.message || '').trim();
+
+  if (lang !== 'uz') {
+    return fullMsg || shortMsg || 'Grammar/spelling suggestion';
+  }
+
+  if (ruleId.includes('UPPERCASE_SENTENCE_START') || /capital/i.test(shortMsg)) {
+    return 'Gap bosh harf bilan boshlanishi kerak.';
+  }
+  if (ruleId.includes('EN_A_VS_AN') || /article/i.test(shortMsg)) {
+    return /^an$/i.test(corrected)
+      ? 'Unli tovush bilan boshlanadigan so‘zdan oldin "an" ishlatiladi.'
+      : 'Undosh tovush bilan boshlanadigan so‘zdan oldin "a" ishlatiladi.';
+  }
+  if (ruleId.includes('COMPOUND') || catId === 'COMPOUNDING' || /compound/i.test(shortMsg)) {
+    return `Qo‘shma so‘z chiziqcha yoki qo‘shib yozilishi kerak ("${corrected}").`;
+  }
+  if (ruleId.includes('MORFOLOGIK') || /typo|spelling/i.test(shortMsg)) {
+    return `Imlo xatosi — to‘g‘ri shakli: "${corrected}".`;
+  }
+  if (/agreement|plural|singular|verb/i.test(`${ruleId} ${fullMsg}`)) {
+    return `Ega va kesim (birlik/ko‘plik) moslashuvini to‘g‘rilang: "${corrected}".`;
+  }
+  if (catId === 'PUNCTUATION' || /comma|punct/i.test(`${ruleId} ${shortMsg}`)) {
+    return 'Tinish belgisi qo‘yilishiga e’tibor bering.';
+  }
+  if (ruleId.includes('CONFUSED_WORDS') || /confus/i.test(shortMsg)) {
+    return `Ma’nosiga mos so‘zni tanlang: "${corrected}".`;
+  }
+  if (/preposition/i.test(`${ruleId} ${fullMsg}`)) {
+    return `Predlog noto‘g‘ri tanlangan — to‘g‘risi: "${corrected}".`;
+  }
+
+  const fallback = fullMsg || shortMsg || `To‘g‘ri shakli: "${corrected}"`;
+  return fallback.length > 140 ? `${fallback.slice(0, 137)}...` : fallback;
+}
+
 const AWL_WORDS = new Set([
   'abundant', 'accelerate', 'accessible', 'accommodate', 'accomplish', 'accurate', 'achieve', 'acknowledge',
   'acquire', 'adapt', 'adequate', 'adjacent', 'adjust', 'advocate', 'affect', 'allocate', 'alter',
@@ -134,11 +249,14 @@ function analyzeLinguistics(text, referenceText = '') {
   };
 }
 
-export async function checkGrammarLanguageTool(text) {
+export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
   const input = String(text || '').trim();
   if (input.length < 4 || typeof fetch !== 'function') {
     return { ok: false, matches: [], correctedText: input };
   }
+
+  let ltOk = false;
+  let usable = [];
 
   try {
     const body = new URLSearchParams({
@@ -152,45 +270,81 @@ export async function checkGrammarLanguageTool(text) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body
     });
-    if (!res.ok) {
-      return { ok: false, matches: [], correctedText: input };
+    if (res.ok) {
+      ltOk = true;
+      const data = await res.json();
+      const rawMatches = Array.isArray(data?.matches) ? data.matches : [];
+
+      for (const m of rawMatches) {
+        if (typeof m?.offset !== 'number' || typeof m?.length !== 'number' || m.length <= 0) continue;
+        const ruleId = String(m?.rule?.id || '');
+        const catId = String(m?.rule?.category?.id || '');
+        if (ruleId === 'WHITESPACE_RULE' || ruleId === 'CONSECUTIVE_SPACES') continue;
+
+        const original = input.slice(m.offset, m.offset + m.length);
+        if (!original.trim()) continue;
+        if (catId === 'STYLE' && (!m.replacements || m.replacements.length === 0)) continue;
+
+        const { value: corrected, isUncountable } = pickSmartReplacement(original, m.replacements);
+        if (!corrected || !corrected.trim() || corrected.trim() === original.trim()) continue;
+
+        const { before, after } = extractPhraseContext(input, m.offset, m.length);
+        usable.push({
+          offset: m.offset,
+          length: m.length,
+          original,
+          corrected,
+          contextBefore: before,
+          contextAfter: after,
+          explanation: formatCorrectionExplanation(m, original, corrected, isUncountable, lang),
+          category: m?.rule?.issueType || m?.rule?.category?.name || 'grammar'
+        });
+      }
     }
-    const data = await res.json();
-    const rawMatches = Array.isArray(data?.matches) ? data.matches : [];
-
-    // Filter meaningful grammar/spelling/punctuation matches (ignore minor whitespace nitpicks)
-    const usable = rawMatches.filter((m) => {
-      const cat = m?.rule?.category?.id || '';
-      if (cat === 'STYLE' && (!m.replacements || m.replacements.length === 0)) return false;
-      return typeof m.offset === 'number' && typeof m.length === 'number' && m.length > 0;
-    });
-
-    const matches = usable.slice(0, 8).map((m) => ({
-      offset: m.offset,
-      length: m.length,
-      original: input.slice(m.offset, m.offset + m.length),
-      corrected: m.replacements?.[0]?.value || '',
-      explanation: m.shortMessage || m.message || 'Grammar/spelling suggestion',
-      category: m?.rule?.issueType || m?.rule?.category?.name || 'grammar'
-    }));
-
-    // Build corrected text by applying non-overlapping replacements back-to-front
-    let correctedText = input;
-    const sortedForApply = [...usable]
-      .filter((m) => m.replacements?.[0]?.value)
-      .sort((a, b) => b.offset - a.offset);
-    let lastStart = Infinity;
-    for (const m of sortedForApply) {
-      if (m.offset + m.length > lastStart) continue;
-      const rep = m.replacements[0].value;
-      correctedText = correctedText.slice(0, m.offset) + rep + correctedText.slice(m.offset + m.length);
-      lastStart = m.offset;
-    }
-
-    return { ok: true, matches, correctedText };
   } catch {
-    return { ok: false, matches: [], correctedText: input };
+    ltOk = false;
   }
+
+  // Catch any common uncountable plural errors missed by LanguageTool (even offline)
+  const wordRe = /\b([a-zA-Z]+)\b/g;
+  let wm;
+  while ((wm = wordRe.exec(input)) !== null) {
+    const orig = wm[1];
+    const lower = orig.toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(UNCOUNTABLE_FIXES, lower)) continue;
+    const start = wm.index;
+    const end = start + orig.length;
+    const overlaps = usable.some((u) => !(end <= u.offset || start >= u.offset + u.length));
+    if (overlaps) continue;
+
+    const corrected = matchCasing(orig, UNCOUNTABLE_FIXES[lower]);
+    const { before, after } = extractPhraseContext(input, start, orig.length);
+    usable.push({
+      offset: start,
+      length: orig.length,
+      original: orig,
+      corrected,
+      contextBefore: before,
+      contextAfter: after,
+      explanation: formatCorrectionExplanation(null, orig, corrected, true, lang),
+      category: 'grammar'
+    });
+  }
+
+  usable.sort((a, b) => a.offset - b.offset);
+
+  // Build corrected text by applying non-overlapping replacements back-to-front
+  let correctedText = input;
+  const sortedForApply = [...usable].sort((a, b) => b.offset - a.offset);
+  let lastStart = Infinity;
+  for (const m of sortedForApply) {
+    if (m.offset + m.length > lastStart) continue;
+    correctedText = correctedText.slice(0, m.offset) + m.corrected + correctedText.slice(m.offset + m.length);
+    lastStart = m.offset;
+  }
+  correctedText = correctedText.replace(/[ \t]{2,}/g, ' ').trim();
+
+  return { ok: ltOk, matches: usable.slice(0, 8), correctedText };
 }
 
 function getTaskTargets(taskType) {
@@ -227,7 +381,7 @@ export async function evaluateWritingSmart({
     };
   }
 
-  const lt = await checkGrammarLanguageTool(trimmed);
+  const lt = await checkGrammarLanguageTool(trimmed, { lang });
   const errorCount = lt.matches.length;
   const errorRatePer20Words = (errorCount / Math.max(10, analysis.wordCount)) * 20;
 
@@ -249,6 +403,8 @@ export async function evaluateWritingSmart({
     .map((m) => ({
       original: m.original,
       corrected: m.corrected,
+      contextBefore: m.contextBefore || '',
+      contextAfter: m.contextAfter || '',
       explanation: m.explanation
     }));
 
@@ -432,7 +588,7 @@ export async function evaluateSpeakingSmart({
 
   let lt = { ok: false, matches: [], correctedText: cleanTranscript };
   if (wordCount >= 6) {
-    lt = await checkGrammarLanguageTool(cleanTranscript);
+    lt = await checkGrammarLanguageTool(cleanTranscript, { lang });
   }
 
   const timeFactor = Math.min(1.05, durationSec / Math.max(25, targetSec * 0.8));
@@ -493,6 +649,8 @@ export async function evaluateSpeakingSmart({
     corrections: lt.matches.filter((m) => m.corrected).slice(0, 5).map((m) => ({
       original: m.original,
       corrected: m.corrected,
+      contextBefore: m.contextBefore || '',
+      contextAfter: m.contextAfter || '',
       explanation: m.explanation
     })),
     modelAnswer: lt.ok && lt.correctedText && lt.correctedText !== cleanTranscript ? lt.correctedText : '',
