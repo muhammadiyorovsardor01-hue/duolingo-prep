@@ -1,7 +1,7 @@
 import { getQuestionTypeMeta, getBankCapacity, pickQuestionFromBank } from './questions-bank.js';
 import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
 import { computeSubscores, nextAdaptiveDifficulty, scoreToIelts, scoreToCefr } from './scoring.js';
-import { speakText, unlockSpeech, AudioRecorder, WebcamMonitor } from './speech.js';
+import { speakText, stopSpeaking, unlockSpeech, AudioRecorder, WebcamMonitor } from './speech.js';
 import { generateQuestion } from './gemini.js';
 import {
   recordExamReport,
@@ -61,8 +61,70 @@ function formatClock(sec) {
   return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
 }
 
+function formatDurationBadge(totalSec) {
+  const sec = Math.max(0, Math.round(Number(totalSec) || 0));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m} min`;
+}
+
+function createExamTimer({ durationSec, onTick, onExpire }) {
+  let total = Math.max(1, Number(durationSec) || 1);
+  let deadline = performance.now() + total * 1000;
+  let lastShown = -1;
+  let stopped = false;
+
+  const tick = () => {
+    if (stopped) return;
+    const remMs = Math.max(0, deadline - performance.now());
+    const remSec = Math.ceil(remMs / 1000);
+    if (remSec !== lastShown) {
+      lastShown = remSec;
+      onTick?.(remSec, total);
+    }
+    if (remMs <= 0) {
+      stopped = true;
+      clearInterval(id);
+      onExpire?.();
+    }
+  };
+
+  const id = setInterval(tick, 100);
+  tick();
+
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(id);
+    },
+    reset(newDurationSec) {
+      if (stopped) return;
+      total = Math.max(1, Number(newDurationSec) || 1);
+      deadline = performance.now() + total * 1000;
+      lastShown = -1;
+      tick();
+    }
+  };
+}
+
+function buildMistakePrompt(item) {
+  if (!item) return 'Mock Question';
+  if (item.type === 'fill_blanks') {
+    const gap = '_'.repeat(Math.max(1, String(item.missing || '').length));
+    return `${item.before || ''}${item.prefix || ''}${gap}${item.after || ''}`.trim();
+  }
+  return item.word || item.sentence || item.title || item.prompt || 'Mock Question';
+}
+
 export function renderScoreReport(container, report, { lang = 'uz', onDone }) {
+  const proctorDisabled = report.proctorEnabled === false;
   const isClean = (report.proctorFlags || 0) === 0;
+  const bannerClass = proctorDisabled ? 'banner-info' : (isClean ? 'banner-success' : 'banner-warn');
+  const integrityText = proctorDisabled
+    ? t(lang, 'reportIntegrityOff')
+    : (isClean ? t(lang, 'reportIntegrityClean') : t(lang, 'reportIntegrityWarn'));
   const sub = report.subscores || { reading: 10, writing: 10, listening: 10, speaking: 10 };
   const integ = report.integrated || { literacy: 10, comprehension: 10, conversation: 10, production: 10 };
 
@@ -94,12 +156,12 @@ export function renderScoreReport(container, report, { lang = 'uz', onDone }) {
           </div>
         </div>
 
-        <div class="banner ${isClean ? 'banner-success' : 'banner-warn'}" style="margin-bottom:22px;">
+        <div class="banner ${bannerClass}" style="margin-bottom:22px;">
           <div>
-            <strong>${escapeHtml(isClean ? t(lang, 'reportIntegrityClean') : t(lang, 'reportIntegrityWarn'))}</strong>
-            ${!isClean ? ` (${report.proctorFlags} ${escapeHtml(t(lang, 'proctorFlagCount'))})` : ''}
+            <strong>${escapeHtml(integrityText)}</strong>
+            ${!proctorDisabled && !isClean ? ` (${report.proctorFlags} ${escapeHtml(t(lang, 'proctorFlagCount'))})` : ''}
           </div>
-          <span class="tag">${Math.round((report.totalDurationSec || 0) / 60)} min</span>
+          <span class="tag">${formatDurationBadge(report.totalDurationSec)}</span>
         </div>
 
         <div class="grid-2" style="margin-bottom:24px;">
@@ -167,9 +229,15 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
   let enableProctor = Boolean(settings.enableProctor);
 
   const cleanupSetupHardware = () => {
-    if (testMicRec?.isRecording) testMicRec.abort();
+    stopSpeaking();
+    if (testMicRec?.isRecording) {
+      testMicRec.abort();
+      testMicRec = null;
+    }
     webcam.stop();
   };
+  let activeCleanup = () => cleanupSetupHardware();
+  let enteredFullscreen = Boolean(document.fullscreenElement);
 
   // STEP 1: Pre-Exam Hardware & Rules Check
   container.innerHTML = `
@@ -302,11 +370,17 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
   });
 
   container.querySelector('#chk-start').addEventListener('click', () => {
+    stopSpeaking();
     unlockSpeech();
-    if (testMicRec?.isRecording) testMicRec.abort();
+    if (testMicRec?.isRecording) {
+      testMicRec.abort();
+      testMicRec = null;
+    }
     enableProctor = container.querySelector('#chk-proctor-toggle').checked;
     if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().then(() => {
+        enteredFullscreen = true;
+      }).catch(() => {});
     }
     startExamSession();
   });
@@ -319,13 +393,28 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
     const examStartedAt = Date.now();
     const usedIds = new Set();
     const collectedResponses = [];
+    const rsCount = blueprint.filter((typeId) => typeId === 'read_select').length;
+    const realTarget = Math.random() < 0.5 ? Math.floor(rsCount / 2) : Math.ceil(rsCount / 2);
+    const readSelectPolarities = [
+      ...new Array(realTarget).fill(true),
+      ...new Array(Math.max(0, rsCount - realTarget)).fill(false)
+    ];
+    for (let i = readSelectPolarities.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [readSelectPolarities[i], readSelectPolarities[j]] = [readSelectPolarities[j], readSelectPolarities[i]];
+    }
+    let rsCursor = 0;
+
     let currentIndex = 0;
     let currentDifficulty = 3;
     let proctorFlags = 0;
     let activeRenderer = null;
-    let itemTimerId = null;
+    let examTimer = null;
+    let immediateSubmitTimer = null;
     let prefetchedNext = null;
     let sessionEnded = false;
+    let tornDown = false;
+    let lastFlagAt = 0;
 
     container.innerHTML = `
       <div class="arena-shell">
@@ -335,7 +424,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
             <div class="arena-progress-bar"><div id="ar-prog" class="arena-progress-fill" style="width:0%"></div></div>
           </div>
           <div class="arena-controls">
-            <div id="ar-proctor" class="proctor-badge">${escapeHtml(t(lang, 'proctorClean'))}</div>
+            <div id="ar-proctor" class="proctor-badge ${enableProctor ? '' : 'off'}">${escapeHtml(t(lang, enableProctor ? 'proctorClean' : 'proctorOff'))}</div>
             <div id="ar-timer" class="timer-pill">⏱ 00:00</div>
             <button type="button" id="ar-quit" class="btn btn-secondary btn-sm">✕ ${escapeHtml(t(lang, 'cancel'))}</button>
           </div>
@@ -364,28 +453,55 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       }
     }
 
-    const onVisibilityChange = () => {
+    const recordProctorFlag = () => {
       if (sessionEnded || !enableProctor) return;
-      if (document.hidden) {
-        proctorFlags += 1;
-        const badge = container.querySelector('#ar-proctor');
-        const alertBox = container.querySelector('#ar-proctor-alert');
-        const flagNum = container.querySelector('#ar-flag-num');
-        if (badge) {
-          badge.classList.add('flagged');
-          badge.textContent = `${t(lang, 'proctorFlagCount')}: ${proctorFlags}`;
-        }
-        if (alertBox) alertBox.classList.remove('hidden');
-        if (flagNum) flagNum.textContent = `${t(lang, 'proctorFlagCount')}: ${proctorFlags}`;
+      const now = Date.now();
+      if (now - lastFlagAt < 1500) return;
+      lastFlagAt = now;
+      proctorFlags += 1;
+      const badge = container.querySelector('#ar-proctor');
+      const alertBox = container.querySelector('#ar-proctor-alert');
+      const flagNum = container.querySelector('#ar-flag-num');
+      if (badge) {
+        badge.classList.add('flagged');
+        badge.textContent = `${t(lang, 'proctorFlagCount')}: ${proctorFlags}`;
+      }
+      if (alertBox) alertBox.classList.remove('hidden');
+      if (flagNum) flagNum.textContent = `${t(lang, 'proctorFlagCount')}: ${proctorFlags}`;
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) recordProctorFlag();
+    };
+    const onWindowBlur = () => {
+      recordProctorFlag();
+    };
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        enteredFullscreen = true;
+      } else if (enteredFullscreen) {
+        recordProctorFlag();
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onWindowBlur);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
 
     const tearDownArena = () => {
+      if (tornDown) return;
+      tornDown = true;
       sessionEnded = true;
-      if (itemTimerId) clearInterval(itemTimerId);
+      examTimer?.stop();
+      examTimer = null;
+      if (immediateSubmitTimer) {
+        clearTimeout(immediateSubmitTimer);
+        immediateSubmitTimer = null;
+      }
+      stopSpeaking();
       activeRenderer?.cleanup();
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onWindowBlur);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
       webcam.stop();
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -393,6 +509,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       topNavEl?.classList.remove('hidden');
       mainEl?.classList.remove('arena-mode');
     };
+    activeCleanup = tearDownArena;
 
     container.querySelector('#ar-quit').addEventListener('click', () => {
       tearDownArena();
@@ -406,6 +523,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       if (settings.apiKey && settings.useAiGeneration && meta.aiGeneratable) {
         prefetchedNext = {
           index: nextIdx,
+          difficulty: diff,
           promise: generateQuestion({
             apiKey: settings.apiKey,
             model: settings.model,
@@ -430,12 +548,18 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       const meta = getQuestionTypeMeta(qType);
       let item = null;
 
-      if (prefetchedNext && prefetchedNext.index === currentIndex) {
+      if (prefetchedNext && prefetchedNext.index === currentIndex && prefetchedNext.difficulty === currentDifficulty) {
         item = await prefetchedNext.promise;
       }
       if (!item) {
         const seenIds = getSeenIds(qType);
-        item = pickQuestionFromBank(qType, currentDifficulty, usedIds, { seenIds });
+        const pickOpts = qType === 'read_select'
+          ? { seenIds, preferReal: readSelectPolarities[rsCursor] }
+          : { seenIds };
+        item = pickQuestionFromBank(qType, currentDifficulty, usedIds, pickOpts);
+      }
+      if (qType === 'read_select') {
+        rsCursor += 1;
       }
       usedIds.add(item.id);
       if (!item.isAiGenerated) {
@@ -465,7 +589,9 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         <div id="ar-mount"></div>
         <div class="det-footer">
           <span style="font-size:12.5px;color:var(--ink-muted);">${meta.skills.map((s) => s.toUpperCase()).join(' · ')}</span>
-          <button type="button" id="ar-next-btn" class="btn btn-primary">${currentIndex === blueprint.length - 1 ? 'Finish Exam ✓' : 'Next →'}</button>
+          ${qType === 'read_select'
+            ? `<span style="font-size:12.5px;font-weight:700;color:var(--ink-muted);">${lang === 'uz' ? 'Yes yoki No tanlang' : 'Select Yes or No'}</span>`
+            : `<button type="button" id="ar-next-btn" class="btn btn-primary">${currentIndex === blueprint.length - 1 ? 'Finish Exam ✓' : 'Next →'}</button>`}
         </div>
       `;
 
@@ -475,7 +601,12 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
       const submitCurrent = async (overrideAns = undefined) => {
         if (submitting || sessionEnded) return;
         submitting = true;
-        if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+        if (immediateSubmitTimer) {
+          clearTimeout(immediateSubmitTimer);
+          immediateSubmitTimer = null;
+        }
+        examTimer?.stop();
+        examTimer = null;
 
         const answer = overrideAns !== undefined ? overrideAns : await activeRenderer.getAnswer();
         activeRenderer.cleanup();
@@ -493,37 +624,45 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         loadCurrentQuestion();
       };
 
+      const prepSec = item.prepSec || meta.prepSec || 0;
+      const speakDurationSec = meta.durationSec || 60;
+      const totalSec = prepSec + speakDurationSec;
+
       activeRenderer = mountQuestionRenderer(mountEl, item, {
         settings,
         lang,
-        onImmediateSubmit: qType === 'read_select' ? (val) => setTimeout(() => submitCurrent(val), 180) : undefined
+        onImmediateSubmit: qType === 'read_select'
+          ? (val) => {
+              examTimer?.stop();
+              if (immediateSubmitTimer) clearTimeout(immediateSubmitTimer);
+              immediateSubmitTimer = setTimeout(() => {
+                immediateSubmitTimer = null;
+                submitCurrent(val);
+              }, 180);
+            }
+          : undefined,
+        onEnterSubmit: qType === 'fill_blanks' ? () => submitCurrent() : undefined,
+        onRecordingStart: prepSec > 0 ? () => { examTimer?.reset(speakDurationSec); } : undefined
       });
 
-      card.querySelector('#ar-next-btn').addEventListener('click', () => {
+      card.querySelector('#ar-next-btn')?.addEventListener('click', () => {
         unlockSpeech();
         submitCurrent();
       });
 
-      // Start countdown timer (prep + speaking time for speaking tasks)
-      const totalSec = (item.prepSec || meta.prepSec || 0) + (meta.durationSec || 60);
-      let leftSec = totalSec;
+      // Start drift-free countdown timer (prep + speaking time for speaking tasks)
       const timerEl = container.querySelector('#ar-timer');
-      const updateTimerUi = () => {
-        if (!timerEl) return;
-        timerEl.textContent = `⏱ ${formatClock(leftSec)}`;
-        timerEl.classList.remove('warn', 'danger');
-        if (leftSec <= 10) timerEl.classList.add('danger');
-        else if (leftSec <= totalSec * 0.25) timerEl.classList.add('warn');
-      };
-      updateTimerUi();
-
-      itemTimerId = setInterval(() => {
-        leftSec -= 1;
-        updateTimerUi();
-        if (leftSec <= 0) {
-          submitCurrent();
-        }
-      }, 1000);
+      examTimer = createExamTimer({
+        durationSec: totalSec,
+        onTick: (leftSec, activeTotal) => {
+          if (!timerEl) return;
+          timerEl.textContent = `⏱ ${formatClock(leftSec)}`;
+          timerEl.classList.remove('warn', 'danger');
+          if (leftSec <= 10) timerEl.classList.add('danger');
+          else if (leftSec <= activeTotal * 0.25) timerEl.classList.add('warn');
+        },
+        onExpire: () => submitCurrent()
+      });
 
       // Prefetch next item in background
       prefetchItem(currentIndex + 1, currentDifficulty);
@@ -532,13 +671,14 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
     const finishAndGradeExam = async () => {
       tearDownArena();
       const totalDurationSec = Math.round((Date.now() - examStartedAt) / 1000);
+      const hasApi = Boolean(String(settings.apiKey || '').trim());
 
       container.innerHTML = `
         <div style="max-width:620px;margin:40px auto;">
           <div class="card" style="text-align:center;padding:36px;">
             <div style="font-size:38px;margin-bottom:10px;">🧠</div>
             <h2 style="margin:0 0 8px;">${escapeHtml(t(lang, 'gradingTitle'))}</h2>
-            <p class="page-subtitle" style="margin-bottom:20px;">${escapeHtml(t(lang, 'gradingSub'))}</p>
+            <p class="page-subtitle" style="margin-bottom:20px;">${escapeHtml(t(lang, hasApi ? 'gradingSub' : 'gradingSubFree'))}</p>
             <div class="progress-track" style="height:12px;margin-bottom:10px;">
               <div id="gr-prog" class="progress-fill" style="width:15%"></div>
             </div>
@@ -556,7 +696,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         if (!res.correct && ['read_select', 'fill_blanks', 'read_complete', 'listen_type'].includes(entry.item.type)) {
           addMistake({
             type: entry.item.type,
-            prompt: entry.item.word || entry.item.sentence || entry.item.title || 'Mock Question',
+            prompt: buildMistakePrompt(entry.item),
             userAnswer: res.userSummary,
             correctAnswer: res.expected,
             note: `Mock Exam (${mode})`
@@ -576,6 +716,7 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         date: new Date().toISOString(),
         mode,
         totalDurationSec,
+        proctorEnabled: enableProctor,
         proctorFlags,
         overall: scored.overall,
         subscores: scored.subscores,
@@ -586,6 +727,11 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
             type: g.item.type,
             word: g.item.word,
             sentence: g.item.sentence,
+            before: g.item.before,
+            prefix: g.item.prefix,
+            missing: g.item.missing,
+            after: g.item.after,
+            fullWord: g.item.fullWord,
             title: g.item.title,
             prompt: g.item.prompt,
             isReal: g.item.isReal
@@ -594,10 +740,20 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
         }))
       };
 
-      recordExamReport(report);
+      const storageReport = {
+        ...report,
+        items: report.items.map((entry) => ({
+          item: entry.item,
+          result: entry.result.audioUrl ? { ...entry.result, audioUrl: '' } : entry.result
+        }))
+      };
+
+      recordExamReport(storageReport);
       renderScoreReport(container, report, { lang, onDone: onExit });
     };
 
     loadCurrentQuestion();
   }
+
+  return () => activeCleanup();
 }

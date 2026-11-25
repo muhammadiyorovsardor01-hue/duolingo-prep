@@ -35,11 +35,12 @@ export const GUESSING_FLOOR = {
 
 export function estimateAbilityIRT(responses = []) {
   if (!Array.isArray(responses) || responses.length === 0) return 10;
+  if (responses.every((r) => (Number(r.pctScore) || 0) <= 0)) return 15;
 
-  const a = 0.085;
-  const priorMean = 65;
-  const priorSd = 40;
-  let bestTheta = 65;
+  const a = 0.09;
+  const priorMean = 85;
+  const priorSd = 70;
+  let bestTheta = 85;
   let bestObj = -Infinity;
 
   for (let theta = 10; theta <= 160; theta += 1) {

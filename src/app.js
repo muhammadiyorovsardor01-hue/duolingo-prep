@@ -297,10 +297,12 @@ function renderDashboard() {
 
   mainEl.querySelector('#dash-practice-btn')?.addEventListener('click', () => navigate('practice'));
   mainEl.querySelector('#dash-express')?.addEventListener('click', () => {
-    launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'express', settings: loadState().settings, onExit: () => navigate('dashboard') });
+    practiceCleanup?.();
+    practiceCleanup = launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'express', settings: loadState().settings, onExit: () => navigate('dashboard') });
   });
   mainEl.querySelector('#dash-full')?.addEventListener('click', () => {
-    launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'full', settings: loadState().settings, onExit: () => navigate('dashboard') });
+    practiceCleanup?.();
+    practiceCleanup = launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'full', settings: loadState().settings, onExit: () => navigate('dashboard') });
   });
   mainEl.querySelectorAll('[data-open-report]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -326,7 +328,7 @@ function renderMockHome() {
     <div class="grid-2">
       <div class="card" style="display:flex;flex-direction:column;justify-content:space-between;gap:18px;">
         <div>
-          <span class="tag tag-writing">~15 min · 11 Tasks</span>
+          <span class="tag tag-writing">~10 min · 11 Tasks</span>
           <h2 style="margin:12px 0 8px;font-size:21px;font-weight:800;">⚡ ${escapeHtml(t(lang, 'expressTitle'))}</h2>
           <p style="color:var(--ink-muted);margin:0 0 14px;">${escapeHtml(t(lang, 'expressDesc'))}</p>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -334,7 +336,7 @@ function renderMockHome() {
             <span class="tag">Fill in the Blanks</span>
             <span class="tag">Read &amp; Complete</span>
             <span class="tag">Listen &amp; Type</span>
-            <span class="tag">Read Aloud</span>
+            <span class="tag">Read, Then Speak</span>
             <span class="tag">Write Photo</span>
             <span class="tag">Speak Photo</span>
           </div>
@@ -363,10 +365,12 @@ function renderMockHome() {
   `;
 
   mainEl.querySelector('#start-express-btn').addEventListener('click', () => {
-    launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'express', settings: loadState().settings, onExit: () => navigate('dashboard') });
+    practiceCleanup?.();
+    practiceCleanup = launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'express', settings: loadState().settings, onExit: () => navigate('dashboard') });
   });
   mainEl.querySelector('#start-full-btn').addEventListener('click', () => {
-    launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'full', settings: loadState().settings, onExit: () => navigate('dashboard') });
+    practiceCleanup?.();
+    practiceCleanup = launchMockExamFlow({ container: mainEl, mainEl, topNavEl, mode: 'full', settings: loadState().settings, onExit: () => navigate('dashboard') });
   });
 }
 

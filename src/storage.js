@@ -119,7 +119,7 @@ export function recordExamReport(report) {
   if (state.examHistory.length > 30) {
     state.examHistory = state.examHistory.slice(0, 30);
   }
-  bumpDailyActivity(state, Math.max(5, Math.round((report.totalDurationSec || 900) / 60)));
+  bumpDailyActivity(state, Math.max(0.5, (report.totalDurationSec || 60) / 60));
   saveState(state);
   return state;
 }

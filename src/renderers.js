@@ -134,7 +134,7 @@ export function applyObjectiveReviewVisuals(container, item, result) {
 }
 
 export function mountQuestionRenderer(container, item, options = {}) {
-  const { settings = {}, onSubmitReady, onImmediateSubmit, onEnterSubmit, lang = 'uz' } = options;
+  const { settings = {}, onSubmitReady, onImmediateSubmit, onEnterSubmit, onRecordingStart, lang = 'uz' } = options;
   let cleanupFns = [];
   const registerCleanup = (fn) => cleanupFns.push(fn);
 
@@ -784,6 +784,7 @@ export function mountQuestionRenderer(container, item, options = {}) {
     let prepInterval = null;
     let recordingResult = null;
     let micError = '';
+    let disposed = false;
 
     const scene = type === 'speak_photo' ? getSceneById(item.sceneId) : null;
 
@@ -832,22 +833,31 @@ export function mountQuestionRenderer(container, item, options = {}) {
     const box = container.querySelector('#spk-box');
 
     const startRecording = async () => {
+      if (disposed || phase === 'recording') return;
       if (prepInterval) { clearInterval(prepInterval); prepInterval = null; }
       phase = 'recording';
       micError = '';
+      onRecordingStart?.();
       renderRecorderBox();
       try {
         await recorder.start({
           onLevel: (lvl) => {
+            if (disposed) return;
             const fill = box.querySelector('#mic-fill');
             if (fill) fill.style.width = `${lvl}%`;
           },
           onTranscript: (tr) => {
+            if (disposed) return;
             const prev = box.querySelector('#live-tr');
             if (prev) prev.textContent = tr || '...';
           }
         });
+        if (disposed) {
+          recorder.abort();
+          return;
+        }
       } catch (err) {
+        if (disposed) return;
         micError = err?.message || 'Microphone access blocked.';
         phase = 'fallback';
         renderRecorderBox();
@@ -855,8 +865,9 @@ export function mountQuestionRenderer(container, item, options = {}) {
     };
 
     const stopRecording = async () => {
-      if (!recorder.isRecording) return;
+      if (disposed || !recorder.isRecording) return;
       recordingResult = await recorder.stop();
+      if (disposed) return;
       phase = 'recorded';
       renderRecorderBox();
     };
@@ -915,8 +926,9 @@ export function mountQuestionRenderer(container, item, options = {}) {
     }
 
     registerCleanup(() => {
+      disposed = true;
       if (prepInterval) clearInterval(prepInterval);
-      if (recorder.isRecording) recorder.abort();
+      recorder.abort();
     });
 
     getAnswer = async () => {
@@ -925,7 +937,9 @@ export function mountQuestionRenderer(container, item, options = {}) {
       }
       if (phase === 'fallback') {
         const fb = box.querySelector('#spk-fallback-text')?.value || '';
-        return { base64: '', mimeType: '', durationSec: fb ? 25 : 0, liveTranscript: fb, objectUrl: '' };
+        const fbWords = countWords(fb);
+        const estSec = fbWords > 0 ? Math.max(8, Math.min(180, Math.round((fbWords / 130) * 60))) : 0;
+        return { base64: '', mimeType: '', durationSec: estSec, liveTranscript: fb, objectUrl: '' };
       }
       return recordingResult || { base64: '', mimeType: '', durationSec: 0, liveTranscript: '', objectUrl: '' };
     };
@@ -1196,6 +1210,14 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
             ${d.ok ? '✅' : '❌'} <strong>Turn ${i + 1}:</strong> ${escapeHtml(d.expected)}
           </div>
         `).join('')}
+      </div>
+    `;
+  }
+
+  if (result.audioUrl) {
+    bodyHtml += `
+      <div style="margin:10px 0 4px;">
+        <audio controls src="${escapeHtml(result.audioUrl)}" style="width:100%;max-width:420px;display:block;"></audio>
       </div>
     `;
   }

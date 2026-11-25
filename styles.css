@@ -772,6 +772,11 @@ button {
   color: var(--red);
 }
 
+.proctor-badge.off {
+  background: var(--surface-subtle);
+  color: var(--ink-muted);
+}
+
 .arena-stage {
   flex: 1;
   display: flex;
@@ -2261,6 +2266,21 @@ button {
   font-size: 16px;
   font-weight: 600;
   color: #4B4B4B;
+}
+
+.det-card .det-rs-prompt {
+  margin-bottom: 24px;
+  font-size: 21px;
+}
+
+.det-card .det-rs-word {
+  margin-bottom: 26px;
+  font-size: clamp(28px, 6vw, 38px);
+}
+
+.det-card .det-rs-card {
+  height: 122px;
+  gap: 10px;
 }
 
 /* SLIDE-UP DUOLINGO FEEDBACK DRAWER */
