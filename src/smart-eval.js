@@ -1,4 +1,4 @@
-import { roundDetScore, countWords, levenshtein } from './scoring.js';
+import { roundDetScore, levenshtein } from './scoring.js';
 
 const LT_ENDPOINT = 'https://api.languagetool.org/v2/check';
 

@@ -390,6 +390,9 @@ export class AudioRecorder {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (AudioCtx) {
       this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
       const source = this.audioCtx.createMediaStreamSource(this.stream);
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 256;
@@ -512,13 +515,18 @@ export class AudioRecorder {
 
   abort() {
     this.isRecording = false;
-    if (this.rafId) cancelAnimationFrame(this.rafId);
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
     if (this.recognition) {
       try { this.recognition.stop(); } catch {}
+      this.recognition = null;
     }
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try { this.mediaRecorder.stop(); } catch {}
     }
+    this.mediaRecorder = null;
     if (this.stream) {
       this.stream.getTracks().forEach((tr) => tr.stop());
       this.stream = null;
@@ -527,6 +535,7 @@ export class AudioRecorder {
       try { this.audioCtx.close(); } catch {}
       this.audioCtx = null;
     }
+    this.analyser = null;
   }
 }
 

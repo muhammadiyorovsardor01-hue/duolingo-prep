@@ -8,8 +8,6 @@ import {
   gradeListenType,
   gradeInteractiveReading,
   gradeInteractiveListening,
-  heuristicWritingScore,
-  heuristicSpeakingScore,
   pctToDetScore,
   DET_SCORING_RUBRIC,
   DET_FREQUENCY_TABLE
@@ -1097,15 +1095,17 @@ export function mountQuestionRenderer(container, item, options = {}) {
           recorder.abort();
           return;
         }
+        const turnDeadline = performance.now() + turnDurationSec * 1000;
         turnTimerId = setInterval(() => {
           if (disposed || phase !== 'recording') return;
-          turnRemaining -= 1;
+          turnRemaining = Math.max(0, Math.ceil((turnDeadline - performance.now()) / 1000));
           const secEl = container.querySelector('#is-turn-sec');
-          if (secEl) secEl.textContent = `${Math.max(0, turnRemaining)}s`;
+          const nextSecText = `${turnRemaining}s`;
+          if (secEl && secEl.textContent !== nextSecText) secEl.textContent = nextSecText;
           if (turnRemaining <= 0) {
             finishCurrentTurn();
           }
-        }, 1000);
+        }, 250);
       } catch {
         if (disposed) return;
         phase = 'fallback';

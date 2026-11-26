@@ -78,7 +78,9 @@ export function onStateSaved(fn) {
 export function saveState(state, { silent = false } = {}) {
   const store = getStorage();
   if (!store) return;
-  store.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    store.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
   if (!silent) {
     saveListeners.forEach((fn) => {
       try { fn(state); } catch {}
@@ -132,9 +134,9 @@ export function mergeStates(localState, cloudState) {
       practiceStats[typeId] = lStat;
     } else if ((lStat?.attempts || 0) > (cStat.attempts || 0)) {
       practiceStats[typeId] = lStat;
-    } else if ((lStat?.totalTimeSec || 0) > (cStat.totalTimeSec || 0)) {
+    } else if ((lStat?.attempts || 0) === (cStat.attempts || 0) && (lStat?.totalTimeSec || 0) > (cStat.totalTimeSec || 0)) {
       practiceStats[typeId] = {
-        ...cStat,
+        ...lStat,
         totalTimeSec: Math.max(cStat.totalTimeSec || 0, lStat.totalTimeSec || 0)
       };
     }
@@ -447,7 +449,7 @@ export function markSeenIds(typeId, ids = [], maxKeep = 0) {
     ? merged.slice(merged.length - maxKeep)
     : merged;
   state.seenIds = { ...(state.seenIds || {}), [typeId]: trimmed };
-  saveState(state);
+  saveState(state, { silent: true });
 }
 
 export function getRecentReadSelectWords(state = loadState()) {
@@ -466,7 +468,7 @@ export function recordRecentReadSelectWords(words = []) {
     merged.push(clean);
   }
   state.recentWords = merged.length > 150 ? merged.slice(merged.length - 150) : merged;
-  saveState(state);
+  saveState(state, { silent: true });
 }
 
 export function resetAllData() {

@@ -27,7 +27,7 @@ import {
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText, stopSpeaking, unlockSpeech } from './speech.js';
-import { playCorrectSound, playPartialSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound, warmAudioContext } from './sounds.js';
+import { playCorrectSound, playPartialSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound } from './sounds.js';
 import {
   mountQuestionRenderer,
   applyObjectiveReviewVisuals,
@@ -124,6 +124,7 @@ function navigate(route) {
     practiceCleanup();
     practiceCleanup = null;
   }
+  stopSpeaking();
   topNavEl?.classList.remove('hidden');
   mainEl?.classList.remove('arena-mode');
   currentRoute = route;
@@ -921,6 +922,7 @@ function startReadSelectPractice(useAi) {
   let loaderTimer = null;
   let itemTimerId = null;
   let finishDotsTimer = null;
+  let drawerKeyTimer = null;
   let activeRenderer = null;
   let continueKeyListener = null;
   let batchQueue = null;
@@ -932,6 +934,7 @@ function startReadSelectPractice(useAi) {
     if (loaderTimer) { clearTimeout(loaderTimer); loaderTimer = null; }
     if (itemTimerId) { itemTimerId.stop?.(); itemTimerId = null; }
     if (finishDotsTimer) { clearTimeout(finishDotsTimer); finishDotsTimer = null; }
+    if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
     if (continueKeyListener) {
       document.removeEventListener('keydown', continueKeyListener);
       continueKeyListener = null;
@@ -1146,6 +1149,10 @@ function startReadSelectPractice(useAi) {
         const proceed = () => {
           if (proceeding || aborted) return;
           proceeding = true;
+          if (drawerKeyTimer) {
+            clearTimeout(drawerKeyTimer);
+            drawerKeyTimer = null;
+          }
           if (continueKeyListener) {
             document.removeEventListener('keydown', continueKeyListener);
             continueKeyListener = null;
@@ -1172,13 +1179,20 @@ function startReadSelectPractice(useAi) {
             proceed();
           }
         };
-        document.addEventListener('keydown', continueKeyListener);
+        drawerKeyTimer = setTimeout(() => {
+          drawerKeyTimer = null;
+          if (!aborted && !proceeding && continueKeyListener) {
+            document.addEventListener('keydown', continueKeyListener);
+          }
+        }, 0);
 
         activeRenderer.cleanup();
         const result = await gradeAnyItem({ item, answer, settings });
         if (aborted) return;
 
-        applyObjectiveReviewVisuals(mountEl, item, result);
+        if (!proceeding) {
+          applyObjectiveReviewVisuals(mountEl, item, result);
+        }
         sessionResults.push({ item, result });
 
         if (!result.correct) {
@@ -3101,6 +3115,7 @@ function startPracticeSession(typeId, useAi) {
   let aborted = false;
   let itemTimerId = null;
   let autoAdvanceId = null;
+  let drawerKeyTimer = null;
   let activeRenderer = null;
   let continueKeyListener = null;
   let prefetchedNext = null;
@@ -3127,8 +3142,9 @@ function startPracticeSession(typeId, useAi) {
   `;
 
   const clearItemTimers = () => {
-    if (itemTimerId) { clearInterval(itemTimerId); itemTimerId = null; }
+    if (itemTimerId) { itemTimerId.stop?.(); itemTimerId = null; }
     if (autoAdvanceId) { clearTimeout(autoAdvanceId); autoAdvanceId = null; }
+    if (drawerKeyTimer) { clearTimeout(drawerKeyTimer); drawerKeyTimer = null; }
     if (continueKeyListener) {
       document.removeEventListener('keydown', continueKeyListener);
       continueKeyListener = null;
@@ -3364,19 +3380,23 @@ function startPracticeSession(typeId, useAi) {
     cardEl.innerHTML = `<div id="dp-mount"></div><div id="dp-ai-fb"></div>`;
     const mountEl = cardEl.querySelector('#dp-mount');
 
-    const totalSec = (item.prepSec || meta.prepSec || 0) + (meta.durationSec || 60);
-    let leftSec = totalSec;
+    const prepSec = item.prepSec || meta.prepSec || 0;
+    const speakDurationSec = meta.durationSec || 60;
+    const totalSec = prepSec + speakDurationSec;
     let submitted = false;
 
-    const updateTimer = () => {
+    const renderSessionTimerUi = ({ displaySec, pct, isUrgent }) => {
       if (!timerEl) return;
-      const m = Math.floor(Math.max(0, leftSec) / 60);
-      const s = Math.max(0, leftSec) % 60;
-      timerEl.textContent = `⏱ ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-      timerEl.classList.toggle('warn', leftSec <= totalSec * 0.25 && leftSec > 10);
-      timerEl.classList.toggle('danger', leftSec <= 10);
+      const safe = Math.max(0, Math.floor(displaySec));
+      const m = Math.floor(safe / 60);
+      const s = safe % 60;
+      const nextText = `⏱ ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      if (timerEl.textContent !== nextText) {
+        timerEl.textContent = nextText;
+      }
+      timerEl.classList.toggle('warn', pct <= 25 && !isUrgent);
+      timerEl.classList.toggle('danger', isUrgent);
     };
-    updateTimer();
 
     bottomBar.className = 'det-feedback-bar';
     if (typeId === 'read_select') {
@@ -3434,6 +3454,15 @@ function startPracticeSession(typeId, useAi) {
 
       sessionResults.push({ item, result });
 
+      const isGood = isObjective ? result.correct : result.detScore >= 105;
+      if (timedOut && answer == null) {
+        playTimeoutSound(soundOn);
+      } else if (isGood) {
+        playCorrectSound(soundOn);
+      } else {
+        playWrongSound(soundOn);
+      }
+
       if (!result.correct && ['read_select', 'fill_blanks', 'read_complete', 'listen_type'].includes(typeId)) {
         addMistake({
           type: typeId,
@@ -3447,15 +3476,6 @@ function startPracticeSession(typeId, useAi) {
 
       if (practiceDifficulty === 'adaptive') {
         currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
-      }
-
-      const isGood = isObjective ? result.correct : result.detScore >= 105;
-      if (timedOut && answer == null) {
-        playTimeoutSound(soundOn);
-      } else if (isGood) {
-        playCorrectSound(soundOn);
-      } else {
-        playWrongSound(soundOn);
       }
 
       if (isObjective) {
@@ -3493,7 +3513,12 @@ function startPracticeSession(typeId, useAi) {
             advanceToNext();
           }
         };
-        document.addEventListener('keydown', continueKeyListener);
+        drawerKeyTimer = setTimeout(() => {
+          drawerKeyTimer = null;
+          if (!aborted && continueKeyListener) {
+            document.addEventListener('keydown', continueKeyListener);
+          }
+        }, 0);
       } else {
         const aiFbSlot = cardEl.querySelector('#dp-ai-fb');
         aiFbSlot.innerHTML = '';
@@ -3534,10 +3559,25 @@ function startPracticeSession(typeId, useAi) {
       }
     };
 
+    const startSessionItemTimer = (sec) => {
+      if (itemTimerId) {
+        itemTimerId.stop?.();
+        itemTimerId = null;
+      }
+      if (submitted || aborted) return;
+      itemTimerId = createPrecisionTimer({
+        totalSec: sec,
+        urgentSec: Math.min(10, Math.max(1, Math.floor(sec * 0.2))),
+        onTick: renderSessionTimerUi,
+        onExpire: () => handleSubmit(undefined, true)
+      });
+    };
+
     activeRenderer = mountQuestionRenderer(mountEl, item, {
       settings,
       lang,
-      onImmediateSubmit: typeId === 'read_select' ? (val) => handleSubmit(val, false) : undefined
+      onImmediateSubmit: typeId === 'read_select' ? (val) => handleSubmit(val, false) : undefined,
+      onRecordingStart: prepSec > 0 ? () => startSessionItemTimer(speakDurationSec) : undefined
     });
 
     bottomBar.querySelector('#dp-submit')?.addEventListener('click', () => {
@@ -3545,13 +3585,7 @@ function startPracticeSession(typeId, useAi) {
       handleSubmit();
     });
 
-    itemTimerId = setInterval(() => {
-      leftSec -= 1;
-      updateTimer();
-      if (leftSec <= 0) {
-        handleSubmit(undefined, true);
-      }
-    }, 1000);
+    startSessionItemTimer(totalSec);
   };
 
   loadItem();
@@ -4193,10 +4227,12 @@ function renderSettingsView() {
 
   mainEl.querySelector('#bk-export').addEventListener('click', () => {
     const blob = new Blob([exportBackupJSON()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    a.href = url;
     a.download = `det-prep-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   });
 
   mainEl.querySelector('#bk-import').addEventListener('change', async (e) => {
@@ -4237,6 +4273,8 @@ function openProfileModal() {
   let cloudStatus = { cloudConfigured: true, mode: 'checking' };
   let busy = false;
   let errorMsg = '';
+  let draftUser = '';
+  let draftPass = '';
 
   const closeModal = () => {
     document.removeEventListener('keydown', onKeyClose);
@@ -4260,6 +4298,19 @@ function openProfileModal() {
     return fallback || (uz ? 'Xatolik yuz berdi.' : 'Operation failed.');
   };
 
+  const buildCloudGuideHtml = (lang) => {
+    if (cloudStatus.cloudConfigured) return '';
+    const uz = lang === 'uz';
+    return `
+      <div class="banner banner-info" style="font-size:12.5px;margin-bottom:14px;display:block;">
+        <div style="font-weight:800;margin-bottom:4px;">☁️ ${uz ? 'Qurilmalararo Cloud Sync uchun (Vercel Free Storage):' : 'Enable Cross-Device Cloud Sync (Vercel Free):'}</div>
+        <div>${uz
+          ? 'Telefon va noutbukda bir xil akkaunt ochilishi uchun Vercel → <strong>Storage</strong> → <strong>Create Upstash Redis (Free)</strong> → <code>duolingo-prep</code> loyihasiga ulang va <strong>Redeploy</strong> qiling. Ungacha profil shu qurilmada ishlaydi.'
+          : 'To sync across phone & laptop, link free <strong>Upstash Redis</strong> in Vercel → <strong>Storage</strong> to <code>duolingo-prep</code> and redeploy. Until then, profiles save on this device.'}</div>
+      </div>
+    `;
+  };
+
   const renderModal = () => {
     const state = loadState();
     const lang = state.settings.uiLang || 'uz';
@@ -4268,15 +4319,7 @@ function openProfileModal() {
     const totalPractices = Object.values(state.practiceStats || {}).reduce((s, p) => s + (p.attempts || 0), 0);
     const activeMistakes = (state.mistakes || []).filter((m) => !m.mastered).length;
     const streak = getStreak(state);
-
-    const cloudGuideHtml = !cloudStatus.cloudConfigured ? `
-      <div class="banner banner-info" style="font-size:12.5px;margin-bottom:14px;display:block;">
-        <div style="font-weight:800;margin-bottom:4px;">☁️ ${uz ? 'Qurilmalararo Cloud Sync uchun (Vercel Free Storage):' : 'Enable Cross-Device Cloud Sync (Vercel Free):'}</div>
-        <div>${uz
-          ? 'Telefon va noutbukda bir xil akkaunt ochilishi uchun Vercel → <strong>Storage</strong> → <strong>Create Upstash Redis (Free)</strong> → <code>duolingo-prep</code> loyihasiga ulang va <strong>Redeploy</strong> qiling. Ungacha profil shu qurilmada ishlaydi.'
-          : 'To sync across phone & laptop, link free <strong>Upstash Redis</strong> in Vercel → <strong>Storage</strong> to <code>duolingo-prep</code> and redeploy. Until then, profiles save on this device.'}</div>
-      </div>
-    ` : '';
+    const cloudGuideHtml = buildCloudGuideHtml(lang);
 
     if (sess?.username) {
       const initials = sess.username.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'U';
@@ -4299,7 +4342,7 @@ function openProfileModal() {
             </div>
           </div>
 
-          ${cloudGuideHtml}
+          <div id="prof-cloud-slot">${cloudGuideHtml}</div>
 
           <div class="kpi-grid" style="margin-bottom:16px;">
             <div class="kpi-box"><div class="kpi-label">${uz ? 'Mock imtihonlar' : 'Mock Exams'}</div><div class="kpi-val">${(state.examHistory || []).length}</div></div>
@@ -4357,7 +4400,7 @@ function openProfileModal() {
           ? 'Telefon va noutbukdagi barcha Mock natijalari, ballar va xatolarni bitta akkauntda saqlang.'
           : 'Keep all Mock scores, practice stats, and mistakes synced across laptop and phone.'}</p>
 
-        ${cloudGuideHtml}
+        <div id="prof-cloud-slot">${cloudGuideHtml}</div>
 
         <div class="profile-tabs">
           <button type="button" class="profile-tab ${modeTab === 'login' ? 'active' : ''}" data-ptab="login">${uz ? 'Kirish' : 'Sign In'}</button>
@@ -4367,11 +4410,11 @@ function openProfileModal() {
         <form id="prof-form" autocomplete="on">
           <div class="form-group">
             <label class="form-label" for="prof-user">Username</label>
-            <input id="prof-user" class="det-input" type="text" autocomplete="username" placeholder="masalan: sardor_01" required />
+            <input id="prof-user" class="det-input" type="text" autocomplete="username" value="${escapeHtml(draftUser)}" placeholder="masalan: sardor_01" required />
           </div>
           <div class="form-group">
             <label class="form-label" for="prof-pass">${uz ? 'Parol (kamida 6 belgi)' : 'Password (min 6 chars)'}</label>
-            <input id="prof-pass" class="det-input" type="password" autocomplete="${modeTab === 'login' ? 'current-password' : 'new-password'}" placeholder="••••••" required />
+            <input id="prof-pass" class="det-input" type="password" autocomplete="${modeTab === 'login' ? 'current-password' : 'new-password'}" value="${escapeHtml(draftPass)}" placeholder="••••••" required />
           </div>
           ${errorMsg ? `<div class="banner banner-danger" style="font-size:13px;margin-bottom:12px;">${escapeHtml(errorMsg)}</div>` : ''}
           <button type="submit" class="det-btn-blue" ${busy ? 'disabled' : ''}>
@@ -4393,21 +4436,26 @@ function openProfileModal() {
     const form = overlay.querySelector('#prof-form');
     const userInp = overlay.querySelector('#prof-user');
     const passInp = overlay.querySelector('#prof-pass');
-    setTimeout(() => userInp?.focus(), 40);
+    userInp?.addEventListener('input', () => { draftUser = userInp.value; });
+    passInp?.addEventListener('input', () => { draftPass = passInp.value; });
+    if (!draftUser) setTimeout(() => userInp?.focus(), 40);
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (busy) return;
+      const u = userInp.value;
+      const p = passInp.value;
+      draftUser = u;
+      draftPass = p;
       busy = true;
       errorMsg = '';
       renderModal();
 
-      const u = userInp.value;
-      const p = passInp.value;
       const res = modeTab === 'register' ? await registerAccount(u, p) : await loginAccount(u, p);
       busy = false;
 
       if (res.ok) {
+        draftPass = '';
         syncChrome();
         if (currentRoute === 'dashboard') renderDashboard();
         else if (currentRoute === 'practice') renderPracticeHub();
@@ -4431,7 +4479,11 @@ function openProfileModal() {
   renderModal();
   checkCloudStatus().then((st) => {
     cloudStatus = st;
-    if (document.body.contains(overlay)) renderModal();
+    if (!document.body.contains(overlay)) return;
+    const slot = overlay.querySelector('#prof-cloud-slot');
+    if (slot) {
+      slot.innerHTML = buildCloudGuideHtml(loadState().settings.uiLang || 'uz');
+    }
   });
 }
 

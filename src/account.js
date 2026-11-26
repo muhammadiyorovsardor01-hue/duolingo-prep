@@ -261,7 +261,7 @@ export function initAccountAutoSync(onSynced) {
   if (initialized) return;
   initialized = true;
 
-  onStateSaved((state) => {
+  onStateSaved(() => {
     const sess = getAuthSession();
     if (!sess) return;
     if (autoSyncTimer) clearTimeout(autoSyncTimer);
@@ -269,8 +269,9 @@ export function initAccountAutoSync(onSynced) {
       autoSyncTimer = null;
       const curSess = getAuthSession();
       if (!curSess) return;
+      const latestState = loadState();
       if (curSess.mode === 'local' || !curSess.token) {
-        await saveLocalProfileSnapshot(curSess.username, null, state);
+        await saveLocalProfileSnapshot(curSess.username, null, latestState);
         setAuthSession({ ...curSess, lastSyncedAt: new Date().toISOString() });
         return;
       }
@@ -278,7 +279,7 @@ export function initAccountAutoSync(onSynced) {
         const res = await callAccountApi({
           action: 'sync_save',
           token: curSess.token,
-          state: sanitizeStateForCloud(state)
+          state: sanitizeStateForCloud(latestState)
         });
         if (res.ok) {
           setAuthSession({ ...curSess, lastSyncedAt: res.updatedAt || new Date().toISOString() });
