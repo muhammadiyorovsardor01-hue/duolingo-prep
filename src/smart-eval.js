@@ -226,6 +226,22 @@ function analyzeLinguistics(text, referenceText = '') {
     return new RegExp(`\\b${escaped}\\b`, 'i').test(lower);
   });
 
+  // Grammatical complexity markers (subordinating clauses, conditionals, passive/linking structures)
+  const complexMatches = trimmed.match(/\b(although|though|even though|whereas|while|because|since|unless|whenever|which|whom|whose|despite|however|therefore|consequently|furthermore|moreover|whether)\b/gi) || [];
+  const complexMarkers = complexMatches.length;
+
+  // Writing punctuation & capitalization signals
+  const hasEndPunct = /[.!?]\s*$/.test(trimmed);
+  const hasInternalPunct = /[,;:]/.test(trimmed);
+  const capitalStart = /^[A-Z0-9"'(]/.test(trimmed);
+
+  // Speaking disfluency signals (fillers, immediate repetitions, restarts)
+  const fillerMatches = lower.match(/\b(um+|uh+|er+|ah+|hmm+|you know|i mean|sort of|kind of)\b/g) || [];
+  const likeCount = Math.max(0, (lower.match(/\blike\b/g) || []).length - 2);
+  const fillers = fillerMatches.length + likeCount;
+  const repetitions = (lower.match(/\b([a-z']{2,})\s+\1\b/g) || []).length;
+  const restarts = (lower.match(/\b(i mean|wait|sorry|no wait|let me)\b/g) || []).length + (trimmed.match(/--|(\.\.\.)/g) || []).length;
+
   // Relevance check against prompt + imageDescription
   const refTokens = [...new Set(tokenizeWords(referenceText).filter((w) => w.length >= 4 && !STOP_WORDS.has(w)))];
   let relevanceHits = 0;
@@ -245,14 +261,41 @@ function analyzeLinguistics(text, referenceText = '') {
     avgSentenceLen,
     advancedWords,
     connectors,
+    complexMarkers,
+    hasEndPunct,
+    hasInternalPunct,
+    capitalStart,
+    fillers,
+    repetitions,
+    restarts,
     relevanceRatio
   };
+}
+
+function classifyRuleCategory(match) {
+  const ruleId = String(match?.rule?.id || '');
+  const catId = String(match?.rule?.category?.id || '');
+  const issueType = String(match?.rule?.issueType || '');
+  if (catId === 'TYPOS' || ruleId.includes('MORFOLOGIK') || /misspelling|typo/i.test(issueType)) {
+    return 'spelling';
+  }
+  if (catId === 'PUNCTUATION' || catId === 'CASING' || /punct|comma|uppercase/i.test(ruleId)) {
+    return 'punctuation';
+  }
+  return 'grammar';
 }
 
 export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
   const input = String(text || '').trim();
   if (input.length < 4 || typeof fetch !== 'function') {
-    return { ok: false, matches: [], correctedText: input };
+    return {
+      ok: false,
+      matches: [],
+      correctedText: input,
+      spellingErrors: 0,
+      punctuationErrors: 0,
+      grammarErrors: 0
+    };
   }
 
   let ltOk = false;
@@ -288,6 +331,7 @@ export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
         const { value: corrected, isUncountable } = pickSmartReplacement(original, m.replacements);
         if (!corrected || !corrected.trim() || corrected.trim() === original.trim()) continue;
 
+        const ruleCategory = isUncountable ? 'grammar' : classifyRuleCategory(m);
         const { before, after } = extractPhraseContext(input, m.offset, m.length);
         usable.push({
           offset: m.offset,
@@ -297,7 +341,8 @@ export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
           contextBefore: before,
           contextAfter: after,
           explanation: formatCorrectionExplanation(m, original, corrected, isUncountable, lang),
-          category: m?.rule?.issueType || m?.rule?.category?.name || 'grammar'
+          category: m?.rule?.issueType || m?.rule?.category?.name || 'grammar',
+          ruleCategory
         });
       }
     }
@@ -327,7 +372,8 @@ export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
       contextBefore: before,
       contextAfter: after,
       explanation: formatCorrectionExplanation(null, orig, corrected, true, lang),
-      category: 'grammar'
+      category: 'grammar',
+      ruleCategory: 'grammar'
     });
   }
 
@@ -344,7 +390,18 @@ export async function checkGrammarLanguageTool(text, { lang = 'uz' } = {}) {
   }
   correctedText = correctedText.replace(/[ \t]{2,}/g, ' ').trim();
 
-  return { ok: ltOk, matches: usable.slice(0, 8), correctedText };
+  const spellingErrors = usable.filter((u) => u.ruleCategory === 'spelling').length;
+  const punctuationErrors = usable.filter((u) => u.ruleCategory === 'punctuation').length;
+  const grammarErrors = usable.filter((u) => u.ruleCategory === 'grammar').length;
+
+  return {
+    ok: ltOk,
+    matches: usable.slice(0, 8),
+    correctedText,
+    spellingErrors,
+    punctuationErrors,
+    grammarErrors
+  };
 }
 
 function getTaskTargets(taskType) {
@@ -369,33 +426,50 @@ export async function evaluateWritingSmart({
       estimatedScore: 20,
       isOfflineEstimate: false,
       isSmartFreeEval: true,
-      engineLabel: 'Smart Grammar Engine (Free)',
-      criteria: { grammar: 20, vocabulary: 20, coherence: 20, taskRelevance: 20 },
+      engineLabel: 'Smart DET Rubric Engine (Free)',
+      criteria: { content: 20, discourseCoherence: 20, lexis: 20, grammar: 20 },
       summary: lang === 'uz'
         ? 'Javob juda qisqa. Kamida bir nechta to‘liq gap yozishga harakat qiling.'
         : 'Response is too brief. Write multiple complete, connected sentences.',
       corrections: [],
       upgradedVersion: '',
       keyTips: [],
-      stats: { wordCount: analysis.wordCount, errorCount: 0, advancedWords: [], connectors: [] }
+      stats: {
+        wordCount: analysis.wordCount,
+        errorCount: 0,
+        spellingErrors: 0,
+        punctuationErrors: 0,
+        grammarErrors: 0,
+        complexMarkers: 0,
+        lexicalDiversityPct: 0,
+        advancedWords: [],
+        connectors: []
+      }
     };
   }
 
   const lt = await checkGrammarLanguageTool(trimmed, { lang });
   const errorCount = lt.matches.length;
-  const errorRatePer20Words = (errorCount / Math.max(10, analysis.wordCount)) * 20;
-
-  const grammarBase = Math.max(35, 148 - errorRatePer20Words * 22);
+  const gramDensity = (lt.grammarErrors / Math.max(10, analysis.wordCount)) * 20;
   const lengthFactor = Math.min(1.08, analysis.wordCount / targetWords);
-  const vocabRaw = 55 + Math.min(45, analysis.lexicalDiversity * 58) + Math.min(35, analysis.advancedWords.length * 7) + lengthFactor * 18;
-  const coherenceRaw = 52 + lengthFactor * 48 + Math.min(28, analysis.connectors.length * 10) + (analysis.sentenceCount >= 3 ? 16 : 4);
-  const relevanceRaw = 48 + (analysis.wordCount >= minWords ? 42 : (analysis.wordCount / minWords) * 35) + analysis.relevanceRatio * 55;
+  const lexicalDiversityPct = Math.round(analysis.lexicalDiversity * 100);
+  const punctBonus = (analysis.hasEndPunct ? 6 : -8) + (analysis.capitalStart ? 4 : -6) + (analysis.hasInternalPunct ? 4 : 0);
+  const sentenceBalance = analysis.avgSentenceLen >= 9 && analysis.avgSentenceLen <= 25 ? 12 : 4;
 
-  const grammar = roundDetScore(Math.min(155, grammarBase * (0.65 + 0.35 * Math.min(1, lengthFactor))));
-  const vocabulary = roundDetScore(Math.min(155, vocabRaw));
-  const coherence = roundDetScore(Math.min(155, coherenceRaw));
-  const taskRelevance = roundDetScore(Math.min(155, relevanceRaw));
-  const estimatedScore = roundDetScore((grammar * 0.32 + vocabulary * 0.24 + coherence * 0.22 + taskRelevance * 0.22));
+  // 1. Content: relevance, style, development, effect on reader
+  const contentRaw = 46 + (analysis.wordCount >= minWords ? 36 : (analysis.wordCount / minWords) * 30) + analysis.relevanceRatio * 48 + Math.min(18, lengthFactor * 16);
+  // 2. Discourse Coherence: clarity, cohesion, progression, structure (writing only)
+  const coherenceRaw = 48 + lengthFactor * 42 + Math.min(30, analysis.connectors.length * 11) + (analysis.sentenceCount >= 3 ? 14 : 4) + sentenceBalance;
+  // 3. Lexis: diversity, sophistication, word choice/formation, spelling (writing only)
+  const lexisRaw = 54 + Math.min(44, analysis.lexicalDiversity * 58) + Math.min(34, analysis.advancedWords.length * 7) + lengthFactor * 16 - lt.spellingErrors * 7;
+  // 4. Grammar: complexity, accuracy, punctuation (writing only)
+  const grammarBase = Math.max(35, 134 - gramDensity * 20 - lt.punctuationErrors * 5 + Math.min(18, analysis.complexMarkers * 5) + punctBonus);
+
+  const content = roundDetScore(Math.min(155, Math.max(25, contentRaw)));
+  const discourseCoherence = roundDetScore(Math.min(155, Math.max(25, coherenceRaw)));
+  const lexis = roundDetScore(Math.min(155, Math.max(25, lexisRaw)));
+  const grammar = roundDetScore(Math.min(155, Math.max(25, grammarBase * (0.68 + 0.32 * Math.min(1, lengthFactor)))));
+  const estimatedScore = roundDetScore((content + discourseCoherence + lexis + grammar) / 4);
 
   const corrections = lt.matches
     .filter((m) => m.corrected)
@@ -416,52 +490,70 @@ export async function evaluateWritingSmart({
   if (analysis.wordCount < targetWords) {
     tips.push(
       lang === 'uz'
-        ? `Hajmni oshiring: hozir ${analysis.wordCount} ta so‘z, ${targetWords}+ so‘z yozish ballni sezilarli ko‘taradi.`
-        : `Expand your answer: currently ${analysis.wordCount} words; aiming for ${targetWords}+ words boosts your score.`
+        ? `Content (rivojlantirish): hozir ${analysis.wordCount} ta so‘z, ${targetWords}+ so‘zgacha fikrni misollar bilan kengaytiring.`
+        : `Content & development: expand from ${analysis.wordCount} to ${targetWords}+ words with concrete details.`
     );
   }
   if (analysis.connectors.length < 2) {
     tips.push(
       lang === 'uz'
-        ? 'Bog‘lovchi so‘zlardan foydalaning: however, furthermore, consequently, for instance.'
-        : 'Add linking phrases such as however, furthermore, consequently, and for instance.'
+        ? 'Discourse Coherence: "however, furthermore, consequently, for instance" kabi bog‘lovchilar bilan tuzilmani kuchaytiring.'
+        : 'Discourse Coherence: add linking phrases (however, furthermore, consequently) for smoother progression.'
     );
   }
-  if (errorCount > 0) {
+  if (lt.punctuationErrors > 0 || !analysis.hasEndPunct || !analysis.capitalStart) {
     tips.push(
       lang === 'uz'
-        ? `${errorCount} ta grammatika/imlo xatosi aniqlandi — yuqoridagi tuzatishlarni ko‘rib chiqing.`
-        : `${errorCount} grammar/spelling issue(s) found — review the corrections above.`
+        ? 'Grammar (tinish belgilari): gap boshini bosh harf va oxirini nuqta/vergullar bilan to‘g‘ri yozing.'
+        : 'Grammar & punctuation: check sentence capitalization, commas, and end punctuation.'
+    );
+  } else if (analysis.complexMarkers < 2) {
+    tips.push(
+      lang === 'uz'
+        ? 'Grammar (murakkablik): "although, whereas, which, because" bilan qo‘shma gaplar tuzing.'
+        : 'Grammar complexity: combine ideas using clauses with although, whereas, which, or because.'
+    );
+  }
+  if (lt.spellingErrors > 0) {
+    tips.push(
+      lang === 'uz'
+        ? `Lexis (imlo): ${lt.spellingErrors} ta imlo xatosi topildi — yuqoridagi tuzatishlarni ko‘rib chiqing.`
+        : `Lexis & spelling: fix the ${lt.spellingErrors} spelling issue(s) highlighted above.`
     );
   } else if (analysis.advancedWords.length < 3) {
     tips.push(
       lang === 'uz'
-        ? 'C1/C2 darajadagi aniqroq akademik so‘zlarni qo‘shing (masalan: significant, sustainable, demonstrate).'
-        : 'Include stronger academic vocabulary (e.g., significant, sustainable, demonstrate) to push past 130.'
+        ? 'Lexis: C1 darajadagi aniqroq so‘zlar qo‘shing (masalan: significant, sustainable, demonstrate).'
+        : 'Lexis: incorporate stronger academic vocabulary (e.g., significant, sustainable, demonstrate).'
     );
   }
 
   const ltBadgeText = lt.ok
     ? (lang === 'uz'
-      ? `LanguageTool tekshiruvi: ${analysis.wordCount} ta so‘z, ${errorCount} ta grammatika/imlo xatosi, ${analysis.advancedWords.length} ta kuchli so‘z.`
-      : `Checked ${analysis.wordCount} words via LanguageTool: ${errorCount} issue(s), ${analysis.advancedWords.length} academic/advanced words.`)
+      ? `Writing tahlili (DET 4 mezon): ${analysis.wordCount} so‘z · imlo: ${lt.spellingErrors}, tinish/grammatika: ${lt.grammarErrors + lt.punctuationErrors}, xilma-xillik: ${lexicalDiversityPct}%.`
+      : `Writing rubric check: ${analysis.wordCount} words · spelling: ${lt.spellingErrors}, grammar/punct: ${lt.grammarErrors + lt.punctuationErrors}, lexical diversity: ${lexicalDiversityPct}%.`)
     : (lang === 'uz'
-      ? `Oflayn tahlil: ${analysis.wordCount} ta so‘z, ${analysis.sentenceCount} ta gap, ${analysis.advancedWords.length} ta kuchli so‘z.`
-      : `Offline linguistic analysis: ${analysis.wordCount} words across ${analysis.sentenceCount} sentences.`);
+      ? `Oflayn Writing tahlili: ${analysis.wordCount} ta so‘z, ${analysis.sentenceCount} ta gap, lug‘at xilma-xilligi ${lexicalDiversityPct}%.`
+      : `Offline Writing rubric: ${analysis.wordCount} words across ${analysis.sentenceCount} sentences (${lexicalDiversityPct}% lexical diversity).`);
 
   return {
     estimatedScore,
     isOfflineEstimate: false,
     isSmartFreeEval: true,
-    engineLabel: lt.ok ? 'Smart Grammar Engine (LanguageTool)' : 'Smart Linguistic Analyzer (Offline)',
-    criteria: { grammar, vocabulary, coherence, taskRelevance },
+    engineLabel: lt.ok ? 'Smart DET Rubric + LanguageTool' : 'Smart DET Rubric (Offline)',
+    criteria: { content, discourseCoherence, lexis, grammar },
     summary: ltBadgeText,
     corrections,
     upgradedVersion,
-    keyTips: tips.slice(0, 3),
+    keyTips: tips.slice(0, 4),
     stats: {
       wordCount: analysis.wordCount,
       errorCount,
+      spellingErrors: lt.spellingErrors,
+      punctuationErrors: lt.punctuationErrors,
+      grammarErrors: lt.grammarErrors,
+      complexMarkers: analysis.complexMarkers,
+      lexicalDiversityPct,
       advancedWords: analysis.advancedWords.slice(0, 8),
       connectors: analysis.connectors.slice(0, 6)
     }
@@ -528,17 +620,18 @@ export async function evaluateSpeakingSmart({
       estimatedScore: 20,
       isOfflineEstimate: false,
       isSmartFreeEval: true,
-      engineLabel: 'Smart Speech Analyzer (Free)',
+      engineLabel: 'Smart DET Speech Engine (Free)',
       transcript: cleanTranscript,
       wpm: 0,
-      criteria: { pronunciation: 20, fluency: 20, grammar: 20, vocabulary: 20, relevance: 20 },
+      criteria: { content: 20, lexis: 20, grammar: 20, fluency: 20, pronunciation: 20 },
       summary: lang === 'uz'
         ? 'Ovoz yozilmadi yoki juda qisqa. Mikrofon ruxsatini tekshirib, aniqroq gapiring.'
         : 'Audio was too short or silent. Check microphone permissions and speak clearly.',
       corrections: [],
       modelAnswer: targetSentence || '',
       keyTips: [],
-      wordDiff: []
+      wordDiff: [],
+      stats: { wordCount: 0, fillers: 0, repetitions: 0, restarts: 0, lexicalDiversityPct: 0, advancedWords: [] }
     };
   }
 
@@ -549,22 +642,23 @@ export async function evaluateSpeakingSmart({
     const paceScore = wpm >= 95 && wpm <= 175 ? 140 : wpm >= 70 ? 115 : wpm > 0 ? 85 : 80;
     const pronunciation = hasTranscript ? roundDetScore(35 + (accuracyPct / 100) * 115) : roundDetScore(Math.min(115, 55 + durationSec * 5));
     const fluency = roundDetScore((pronunciation * 0.6 + paceScore * 0.4));
-    const estimatedScore = roundDetScore((pronunciation * 0.55 + fluency * 0.45));
+    const content = hasTranscript ? roundDetScore(30 + (accuracyPct / 100) * 120) : 90;
+    const estimatedScore = roundDetScore((pronunciation * 0.45 + fluency * 0.35 + content * 0.2));
 
     return {
       estimatedScore,
       isOfflineEstimate: false,
       isSmartFreeEval: true,
-      engineLabel: 'Smart Speech Alignment (Free)',
+      engineLabel: 'Smart DET Speech Alignment (Free)',
       transcript: cleanTranscript,
       wpm,
       wordDiff,
       criteria: {
-        pronunciation,
-        fluency,
+        content,
+        lexis: pronunciation,
         grammar: pronunciation,
-        vocabulary: pronunciation,
-        relevance: hasTranscript ? roundDetScore(30 + (accuracyPct / 100) * 120) : 90
+        fluency,
+        pronunciation
       },
       summary: hasTranscript
         ? (lang === 'uz'
@@ -584,9 +678,9 @@ export async function evaluateSpeakingSmart({
   // Open speaking tasks: speak_photo, read_then_speak, speaking_sample
   const targetSec = taskType === 'speaking_sample' ? 110 : 60;
   const analysis = analyzeLinguistics(cleanTranscript, `${prompt} ${imageDescription}`);
-  const fillers = (cleanTranscript.toLowerCase().match(/\b(um+|uh+|er+|ah+)\b/g) || []).length;
+  const lexicalDiversityPct = Math.round(analysis.lexicalDiversity * 100);
 
-  let lt = { ok: false, matches: [], correctedText: cleanTranscript };
+  let lt = { ok: false, matches: [], correctedText: cleanTranscript, grammarErrors: 0, spellingErrors: 0, punctuationErrors: 0 };
   if (wordCount >= 6) {
     lt = await checkGrammarLanguageTool(cleanTranscript, { lang });
   }
@@ -604,49 +698,67 @@ export async function evaluateSpeakingSmart({
       engineLabel: 'Smart Speech Timer (Free)',
       transcript: '',
       wpm: 0,
-      criteria: { pronunciation: base, fluency: base, grammar: base, vocabulary: base, relevance: base },
+      criteria: { content: base, lexis: base, grammar: base, fluency: base, pronunciation: base },
       summary: lang === 'uz'
         ? `${Math.round(durationSec)} soniya nutq yozildi. To‘liq so‘zma-so‘z tahlil uchun Chrome/Edge brauzeridan foydalaning yoki Gemini AI ulang.`
         : `Recorded ${Math.round(durationSec)}s of speech. Use Chrome/Edge for live transcript grammar analysis or connect Gemini AI.`,
       corrections: [],
       modelAnswer: '',
       keyTips: [lang === 'uz' ? '3 qismli reja bilan gapiring: asosiy fikr → 2 ta misol → xulosa.' : 'Follow a 3-part structure: main claim → 2 concrete details → short wrap-up.'],
-      wordDiff: []
+      wordDiff: [],
+      stats: { wordCount: 0, fillers: 0, repetitions: 0, restarts: 0, lexicalDiversityPct: 0, advancedWords: [] }
     };
   }
 
-  const errorCount = lt.matches.length;
-  const errorDensity = (errorCount / Math.max(12, wordCount)) * 20;
-  const grammar = roundDetScore(Math.min(155, Math.max(40, 145 - errorDensity * 20)));
-  const fluency = roundDetScore(Math.min(155, paceScore * 0.55 + (50 + timeFactor * 90) * 0.45 - fillers * 4));
-  const vocabulary = roundDetScore(Math.min(155, 58 + analysis.lexicalDiversity * 52 + analysis.advancedWords.length * 8 + timeFactor * 22));
-  const relevance = roundDetScore(Math.min(155, 55 + timeFactor * 45 + analysis.relevanceRatio * 52));
-  const pronunciation = roundDetScore((fluency * 0.6 + grammar * 0.4));
-  const estimatedScore = roundDetScore((pronunciation + fluency + grammar + vocabulary + relevance) / 5);
+  // Spoken grammar ignores writing-only spelling/punctuation warnings
+  const spokenGramErrors = lt.matches.filter((m) => m.ruleCategory === 'grammar');
+  const gramErrorDensity = (spokenGramErrors.length / Math.max(12, wordCount)) * 20;
+
+  // 1. Content: relevance, style, development, effect on listener
+  const content = roundDetScore(Math.min(155, 52 + timeFactor * 44 + analysis.relevanceRatio * 54));
+  // 2. Lexis: diversity, sophistication, word choice/formation (no spelling penalty in speaking)
+  const lexis = roundDetScore(Math.min(155, 56 + Math.min(44, analysis.lexicalDiversity * 56) + Math.min(34, analysis.advancedWords.length * 8) + timeFactor * 20));
+  // 3. Grammar: complexity & accuracy (no punctuation penalty in speaking)
+  const grammar = roundDetScore(Math.min(155, Math.max(40, 138 - gramErrorDensity * 20 + Math.min(16, analysis.complexMarkers * 5))));
+  // 4. Fluency: speed, pauses, fillers, repetition, starting/stopping
+  const disfluencyPenalty = analysis.fillers * 4 + analysis.repetitions * 6 + analysis.restarts * 5;
+  const fluency = roundDetScore(Math.min(155, Math.max(35, paceScore * 0.55 + (50 + timeFactor * 90) * 0.45 - disfluencyPenalty)));
+  // 5. Pronunciation: intelligibility proxy, stress/intonation/fluency alignment
+  const pronunciation = roundDetScore((fluency * 0.58 + grammar * 0.27 + content * 0.15));
+  const estimatedScore = roundDetScore((content + lexis + grammar + fluency + pronunciation) / 5);
 
   const tips = [];
   if (wpm > 0 && wpm < 95) {
-    tips.push(lang === 'uz' ? `Tezlik past (${wpm} WPM). Pauzalarni qisqartirib, 110–150 WPM da ravon gapirishga harakat qiling.` : `Your pace was ${wpm} WPM; aim for 110–150 WPM with fewer pauses.`);
+    tips.push(lang === 'uz' ? `Fluency (tezlik ${wpm} WPM): pauzalarni qisqartirib, 110–150 WPM da ravon gapiring.` : `Fluency (${wpm} WPM): reduce long pauses and aim for 110–150 WPM.`);
   }
-  if (fillers > 2) {
-    tips.push(lang === 'uz' ? `${fillers} marta "um/uh" ishlatildi — ularning o‘rniga qisqa nafas oling yoki "actually / in fact" deng.` : `Detected ${fillers} filler sounds (um/uh); pause silently or use connectors instead.`);
+  if (analysis.fillers > 2 || analysis.repetitions > 1 || analysis.restarts > 1) {
+    tips.push(
+      lang === 'uz'
+        ? `Fluency: ${analysis.fillers} ta filler (um/uh/like), ${analysis.repetitions} ta takror so‘z va ${analysis.restarts} ta to‘xtab-boshlash aniqlandi — ularning o‘rniga qisqa tabiiy pauza oling.`
+        : `Fluency: detected ${analysis.fillers} filler(s), ${analysis.repetitions} repetition(s), and ${analysis.restarts} restart(s) — use brief silent pauses instead.`
+    );
   }
   if (durationSec < 35) {
-    tips.push(lang === 'uz' ? 'Kamida 45–60 soniya gapirish ballni ancha oshiradi.' : 'Speaking for at least 45–60 seconds helps demonstrate fluency.');
+    tips.push(lang === 'uz' ? 'Content: kamida 45–60 soniya gapirib, 2 ta aniq misol bilan fikrni rivojlantiring.' : 'Content: speak for 45–60s with 2 specific supporting details.');
   }
+  tips.push(
+    lang === 'uz'
+      ? 'Pronunciation: asosiy mazmun so‘zlariga urg‘u bering va gap oxirida intonatsiyani tabiiy tushiring.'
+      : 'Pronunciation: emphasize key content words with clear word/sentence stress and natural intonation.'
+  );
 
   return {
     estimatedScore,
     isOfflineEstimate: false,
     isSmartFreeEval: true,
-    engineLabel: lt.ok ? 'Smart Speech + LanguageTool (Free)' : 'Smart Speech Analyzer (Free)',
+    engineLabel: lt.ok ? 'Smart DET Speech + LanguageTool' : 'Smart DET Speech Engine (Free)',
     transcript: cleanTranscript,
     wpm,
-    criteria: { pronunciation, fluency, grammar, vocabulary, relevance },
+    criteria: { content, lexis, grammar, fluency, pronunciation },
     summary: lang === 'uz'
-      ? `${Math.round(durationSec)}s · ${wordCount} ta so‘z · ${wpm} WPM · ${errorCount} ta grammatika izohi.`
-      : `${Math.round(durationSec)}s · ${wordCount} words · ${wpm} WPM · ${errorCount} grammar note(s).`,
-    corrections: lt.matches.filter((m) => m.corrected).slice(0, 5).map((m) => ({
+      ? `Speaking tahlili (DET 5 mezon): ${Math.round(durationSec)}s · ${wordCount} so‘z · ${wpm} WPM · filler/takror: ${analysis.fillers + analysis.repetitions}.`
+      : `Speaking rubric check: ${Math.round(durationSec)}s · ${wordCount} words · ${wpm} WPM · fillers/repeats: ${analysis.fillers + analysis.repetitions}.`,
+    corrections: spokenGramErrors.filter((m) => m.corrected).slice(0, 5).map((m) => ({
       original: m.original,
       corrected: m.corrected,
       contextBefore: m.contextBefore || '',
@@ -654,7 +766,17 @@ export async function evaluateSpeakingSmart({
       explanation: m.explanation
     })),
     modelAnswer: lt.ok && lt.correctedText && lt.correctedText !== cleanTranscript ? lt.correctedText : '',
-    keyTips: tips.slice(0, 3),
-    wordDiff: []
+    keyTips: tips.slice(0, 4),
+    wordDiff: [],
+    stats: {
+      wordCount,
+      fillers: analysis.fillers,
+      repetitions: analysis.repetitions,
+      restarts: analysis.restarts,
+      lexicalDiversityPct,
+      complexMarkers: analysis.complexMarkers,
+      advancedWords: analysis.advancedWords.slice(0, 8),
+      connectors: analysis.connectors.slice(0, 6)
+    }
   };
 }

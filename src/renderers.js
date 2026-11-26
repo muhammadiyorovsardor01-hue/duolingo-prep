@@ -10,7 +10,9 @@ import {
   gradeInteractiveListening,
   heuristicWritingScore,
   heuristicSpeakingScore,
-  pctToDetScore
+  pctToDetScore,
+  DET_SCORING_RUBRIC,
+  DET_FREQUENCY_TABLE
 } from './scoring.js';
 import { evaluateWriting, evaluateSpeaking } from './gemini.js';
 import { evaluateWritingSmart, evaluateSpeakingSmart } from './smart-eval.js';
@@ -1143,6 +1145,179 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
   };
 }
 
+const GUIDE_ICONS = {
+  speaking: `<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><rect x="10" y="3" width="8" height="14" rx="4" fill="#1CB0F6"/><path d="M6.5 13.5C6.5 17.64 9.86 21 14 21C18.14 21 21.5 17.64 21.5 13.5" stroke="#1CB0F6" stroke-width="2.4" stroke-linecap="round"/><path d="M14 21V25M10.5 25H17.5" stroke="#1CB0F6" stroke-width="2.4" stroke-linecap="round"/></svg>`,
+  writing: `<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M18.6 4.4L23.6 9.4L10.4 22.6L4.5 23.5L5.4 17.6L18.6 4.4Z" fill="#FFC800" stroke="#F59E0B" stroke-width="1.4" stroke-linejoin="round"/><path d="M16.2 6.8L21.2 11.8" stroke="#EA580C" stroke-width="2"/><path d="M18.6 4.4L20.5 2.5C21.3 1.7 22.6 1.7 23.4 2.5L25.5 4.6C26.3 5.4 26.3 6.7 25.5 7.5L23.6 9.4L18.6 4.4Z" fill="#FCA5A5"/></svg>`,
+  reading: `<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M3.5 7.5C3.5 6.4 4.4 5.5 5.5 5.5H11C12.7 5.5 14 6.8 14 8.5V22.5C14 21.4 12.7 20.5 11 20.5H5.5C4.4 20.5 3.5 19.6 3.5 18.5V7.5Z" fill="#86EFAC" stroke="#58CC02" stroke-width="2.2" stroke-linejoin="round"/><path d="M24.5 7.5C24.5 6.4 23.6 5.5 22.5 5.5H17C15.3 5.5 14 6.8 14 8.5V22.5C14 21.4 15.3 20.5 17 20.5H22.5C23.6 20.5 24.5 19.6 24.5 18.5V7.5Z" fill="#DCFCE7" stroke="#58CC02" stroke-width="2.2" stroke-linejoin="round"/></svg>`,
+  listening: `<svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 11.5H9.5L15.5 6.5V21.5L9.5 16.5H5C4.2 16.5 3.5 15.8 3.5 15V13C3.5 12.2 4.2 11.5 5 11.5Z" fill="#1CB0F6"/><path d="M18.8 10.2C20.2 12.1 20.2 15.9 18.8 17.8" stroke="#1CB0F6" stroke-width="2.3" stroke-linecap="round"/><path d="M22.2 7.5C24.8 11 24.8 17 22.2 20.5" stroke="#1CB0F6" stroke-width="2.3" stroke-linecap="round"/></svg>`
+};
+
+function formatCriterionMeta(key, isSpeaking, lang = 'uz') {
+  const uz = lang === 'uz';
+  const k = String(key || '').trim();
+  const map = {
+    content: {
+      label: 'Content',
+      hint: uz ? 'Moslik · Uslub · Rivojlantirish' : 'Relevance · Style · Development'
+    },
+    taskRelevance: {
+      label: 'Content',
+      hint: uz ? 'Moslik · Rivojlantirish' : 'Relevance · Development'
+    },
+    relevance: {
+      label: 'Content',
+      hint: uz ? 'Moslik · Rivojlantirish' : 'Relevance · Development'
+    },
+    discourseCoherence: {
+      label: 'Discourse Coherence',
+      hint: uz ? 'Aniqlik · Bog‘liqlik · Tuzilma' : 'Clarity · Cohesion · Structure'
+    },
+    coherence: {
+      label: 'Discourse Coherence',
+      hint: uz ? 'Aniqlik · Bog‘liqlik · Tuzilma' : 'Clarity · Cohesion · Structure'
+    },
+    lexis: {
+      label: 'Lexis (Vocabulary)',
+      hint: isSpeaking
+        ? (uz ? 'Xilma-xillik · So‘z tanlash' : 'Diversity · Sophistication')
+        : (uz ? 'Xilma-xillik · Akademik · Imlo' : 'Diversity · Choice · Spelling')
+    },
+    vocabulary: {
+      label: 'Lexis (Vocabulary)',
+      hint: isSpeaking
+        ? (uz ? 'Xilma-xillik · So‘z tanlash' : 'Diversity · Sophistication')
+        : (uz ? 'Xilma-xillik · Akademik · Imlo' : 'Diversity · Choice · Spelling')
+    },
+    grammar: {
+      label: 'Grammar',
+      hint: isSpeaking
+        ? (uz ? 'Murakkablik · Aniqlik' : 'Complexity · Accuracy')
+        : (uz ? 'Murakkablik · Aniqlik · Tinish' : 'Complexity · Accuracy · Punct.')
+    },
+    fluency: {
+      label: 'Fluency',
+      hint: uz ? 'Tezlik · Pauzalar · Fillerlar' : 'Speed · Pauses · Fillers'
+    },
+    pronunciation: {
+      label: 'Pronunciation',
+      hint: uz ? 'Tushunarlilik · Urg‘u · Intonatsiya' : 'Intelligibility · Stress · Intonation'
+    }
+  };
+  return map[k] || { label: k, hint: '' };
+}
+
+export function renderScoringGuideHtml(lang = 'uz', { showFrequency = true } = {}) {
+  const uz = lang === 'uz';
+  const scopeLabel = (scope) => {
+    if (scope === 'writing') return uz ? 'Faqat Writing' : 'Writing only';
+    if (scope === 'speaking') return uz ? 'Faqat Speaking' : 'Speaking only';
+    return 'Writing & Speaking';
+  };
+  const scopeTag = (scope) => (scope === 'writing' ? 'tag-writing' : scope === 'speaking' ? 'tag-speaking' : 'tag-ai');
+
+  return `
+    <section class="det-score-guide" aria-label="DET Official Scoring Rules">
+      <div class="card det-score-guide-card">
+        <div class="card-header" style="margin-bottom:8px;">
+          <div>
+            <h2 class="det-guide-title">${uz ? 'Baholash tizimini tushunish (Understand scoring)' : 'Understand scoring'}</h2>
+            <p class="det-guide-sub">${uz
+              ? 'Ballar 10–160 shkalada baholanadi. 4 ta asosiy ko‘nikmaning o‘rtachasi Umumiy (Overall) ballni beradi.'
+              : 'Scores are on a scale of 10–160. Individual subscores average to the overall score.'}</p>
+          </div>
+          <span class="tag tag-ai">Official DET Rules</span>
+        </div>
+
+        <div class="det-score-strip">
+          <div class="det-score-unit">${GUIDE_ICONS.speaking}<span>Speaking</span></div>
+          <div class="det-score-unit">${GUIDE_ICONS.writing}<span>Writing</span></div>
+          <div class="det-score-unit">${GUIDE_ICONS.reading}<span>Reading</span></div>
+          <div class="det-score-unit">${GUIDE_ICONS.listening}<span>Listening</span></div>
+        </div>
+
+        <p class="det-guide-sub" style="margin:18px 0 10px;">${uz
+          ? 'Integratsiyalashgan subscore’lar ikkita asosiy ko‘nikmaning o‘rtacha qiymatidir:'
+          : 'Integrated subscores are the average of two individual subscores.'}</p>
+
+        <div class="det-score-strip">
+          <div class="det-score-unit">
+            <div class="det-score-pair">${GUIDE_ICONS.writing}<span class="det-plus">+</span>${GUIDE_ICONS.speaking}</div>
+            <span>Production</span>
+          </div>
+          <div class="det-score-unit">
+            <div class="det-score-pair">${GUIDE_ICONS.reading}<span class="det-plus">+</span>${GUIDE_ICONS.writing}</div>
+            <span>Literacy</span>
+          </div>
+          <div class="det-score-unit">
+            <div class="det-score-pair">${GUIDE_ICONS.listening}<span class="det-plus">+</span>${GUIDE_ICONS.reading}</div>
+            <span>Comprehension</span>
+          </div>
+          <div class="det-score-unit">
+            <div class="det-score-pair">${GUIDE_ICONS.speaking}<span class="det-plus">+</span>${GUIDE_ICONS.listening}</div>
+            <span>Conversation</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card det-score-guide-card">
+        <div class="card-header" style="margin-bottom:10px;">
+          <div>
+            <h3 class="card-title">${uz ? 'Writing va Speaking baholash mezonlari (6 ta rasmiy qoida)' : 'Official Writing & Speaking Rubric (6 Criteria)'}</h3>
+            <p class="det-guide-sub" style="margin-top:2px;">${uz
+              ? 'Smart Free Engine va Gemini AI javoblaringizni aynan shu mezonlar bo‘yicha tekshiradi.'
+              : 'Both Smart Free Engine and Gemini AI grade your responses against these 6 DET criteria.'}</p>
+          </div>
+        </div>
+        <div class="det-rubric-grid">
+          ${DET_SCORING_RUBRIC.map((r) => `
+            <div class="det-rubric-card">
+              <div class="det-rubric-head">
+                <strong>${escapeHtml(uz ? r.titleUz : r.titleEn)}</strong>
+                <span class="tag ${scopeTag(r.scope)}">${escapeHtml(scopeLabel(r.scope))}</span>
+              </div>
+              <p class="det-rubric-desc">${escapeHtml(uz ? r.descUz : r.descEn)}</p>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      ${showFrequency ? `
+        <div class="card det-score-guide-card">
+          <div class="card-header" style="margin-bottom:10px;">
+            <div>
+              <h3 class="card-title">${uz ? 'Rasmiy DET savol turlari soni (To‘liq Mock tarkibi)' : 'Official Question Frequency (Full Mock Blueprint)'}</h3>
+              <p class="det-guide-sub" style="margin-top:2px;">${uz
+                ? 'To‘liq Mock Imtihon rasmiy DET chastotasi asosida tuzilgan (Interactive Speaking tashqari barcha 12 tur faol).'
+                : 'Full Mock Exam follows the official DET frequency table across all 12 active task types.'}</p>
+            </div>
+          </div>
+          <div class="det-freq-table-wrap">
+            <table class="det-freq-table">
+              <thead>
+                <tr>
+                  <th>Question Type</th>
+                  <th style="text-align:right;">Frequency</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${DET_FREQUENCY_TABLE.map((row) => `
+                  <tr class="${row.inMock ? '' : 'muted-row'}">
+                    <td>
+                      <span>${escapeHtml(row.name)}</span>
+                      ${row.inMock ? '' : `<span class="tag" style="margin-left:6px;">${uz ? 'Tez kunda' : 'Coming soon'}</span>`}
+                    </td>
+                    <td style="text-align:right;font-weight:700;">${escapeHtml(row.frequency)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : ''}
+    </section>
+  `;
+}
+
 export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake }) {
   const wrap = document.createElement('div');
   wrap.className = 'feedback-card';
@@ -1230,18 +1405,31 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
           `<span class="tag ${w.ok ? 'tag-speaking' : 'tag-danger'}">${escapeHtml(w.expected)}</span>`
         ).join('')}</div>`
       : '';
+    const isSpeaking = ['read_aloud', 'speak_photo', 'read_then_speak', 'speaking_sample'].includes(result.type);
     const smartChips = [];
     if (fb.isSmartFreeEval) {
-      smartChips.push(`<span class="tag tag-ai">⚡ ${escapeHtml(fb.engineLabel || 'Smart Grammar Engine (Free)')}</span>`);
+      smartChips.push(`<span class="tag tag-ai">⚡ ${escapeHtml(fb.engineLabel || 'Smart DET Rubric Engine (Free)')}</span>`);
     }
     if (fb.wpm > 0) {
       smartChips.push(`<span class="tag tag-speaking">${fb.wpm} WPM</span>`);
+    }
+    if (Number.isFinite(fb.stats?.lexicalDiversityPct) && fb.stats.lexicalDiversityPct > 0) {
+      smartChips.push(`<span class="tag tag-reading">Lexis Variety: ${fb.stats.lexicalDiversityPct}%</span>`);
     }
     if (fb.stats?.advancedWords?.length) {
       smartChips.push(`<span class="tag tag-reading">C1/AWL: ${fb.stats.advancedWords.length}</span>`);
     }
     if (fb.stats?.connectors?.length) {
       smartChips.push(`<span class="tag tag-writing">Connectors: ${fb.stats.connectors.length}</span>`);
+    }
+    if (!isSpeaking && fb.stats?.spellingErrors > 0) {
+      smartChips.push(`<span class="tag tag-danger">Spelling: ${fb.stats.spellingErrors}</span>`);
+    }
+    if (!isSpeaking && fb.stats?.punctuationErrors > 0) {
+      smartChips.push(`<span class="tag tag-danger">Punctuation: ${fb.stats.punctuationErrors}</span>`);
+    }
+    if (isSpeaking && (fb.stats?.fillers > 0 || fb.stats?.repetitions > 0)) {
+      smartChips.push(`<span class="tag tag-warn">Fillers: ${fb.stats.fillers || 0} · Repeats: ${fb.stats.repetitions || 0}</span>`);
     }
 
     bodyHtml += `
@@ -1252,12 +1440,16 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
         ${wordDiffHtml}
         ${fb.transcript ? `<div class="transcript-preview" style="margin-bottom:12px;"><strong>Transcript:</strong> ${escapeHtml(fb.transcript)}</div>` : ''}
         <div class="criteria-grid">
-          ${critEntries.map(([k, v]) => `
-            <div class="criteria-box">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--ink-muted);">${escapeHtml(k)}</div>
-              <div style="font-size:20px;font-weight:800;">${escapeHtml(v)}</div>
-            </div>
-          `).join('')}
+          ${critEntries.map(([k, v]) => {
+            const metaCrit = formatCriterionMeta(k, isSpeaking, lang);
+            return `
+              <div class="criteria-box">
+                <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--ink-muted);">${escapeHtml(metaCrit.label)}</div>
+                <div style="font-size:20px;font-weight:800;margin:2px 0;">${escapeHtml(v)}</div>
+                ${metaCrit.hint ? `<div class="criteria-sub">${escapeHtml(metaCrit.hint)}</div>` : ''}
+              </div>
+            `;
+          }).join('')}
         </div>
         ${(() => {
           const validFixes = (fb.corrections || []).filter(

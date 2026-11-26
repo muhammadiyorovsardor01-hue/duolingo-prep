@@ -33,6 +33,7 @@ import {
   applyObjectiveReviewVisuals,
   gradeAnyItem,
   renderFeedbackCard,
+  renderScoringGuideHtml,
   escapeHtml
 } from './renderers.js';
 import { launchMockExamFlow, renderScoreReport } from './exam-engine.js';
@@ -346,21 +347,27 @@ function renderMockHome() {
 
       <div class="card" style="display:flex;flex-direction:column;justify-content:space-between;gap:18px;border-color:#FFD2A8;">
         <div>
-          <span class="tag tag-ai">~45 min · 24 Tasks · Official Cadence</span>
+          <span class="tag tag-ai">~45–60 min · 42 Tasks · Official DET Frequency</span>
           <h2 style="margin:12px 0 8px;font-size:21px;font-weight:800;">🎯 ${escapeHtml(t(lang, 'fullTitle'))}</h2>
           <p style="color:var(--ink-muted);margin:0 0 14px;">${escapeHtml(t(lang, 'fullDesc'))}</p>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            <span class="tag">Adaptive Core</span>
-            <span class="tag">Interactive Reading</span>
-            <span class="tag">Interactive Listening</span>
+            <span class="tag">Read &amp; Select (15)</span>
+            <span class="tag">Fill in the Blanks (6)</span>
+            <span class="tag">Read &amp; Complete (3)</span>
+            <span class="tag">Listen &amp; Type (6)</span>
+            <span class="tag">Interactive Reading (2)</span>
+            <span class="tag">Interactive Listening (2)</span>
+            <span class="tag">Write Photo (3)</span>
             <span class="tag">Interactive Writing</span>
-            <span class="tag">Read, Then Speak</span>
-            <span class="tag">Writing Sample</span>
-            <span class="tag">Speaking Sample</span>
+            <span class="tag">Speaking &amp; Samples</span>
           </div>
         </div>
         <button type="button" id="start-full-btn" class="btn btn-success btn-lg">${escapeHtml(t(lang, 'startFullMock'))}</button>
       </div>
+    </div>
+
+    <div style="margin-top:22px;">
+      ${renderScoringGuideHtml(lang, { showFrequency: true })}
     </div>
   `;
 

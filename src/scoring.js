@@ -71,6 +71,74 @@ export function pctToDetScore(pct, difficulty = 3, type = 'fill_blanks') {
   return estimateAbilityIRT([{ pctScore: pct, difficulty, type, weight: 2.5 }]);
 }
 
+// Official DET 6-dimension Open-Response Rubric (Writing & Speaking)
+export const DET_SCORING_RUBRIC = [
+  {
+    key: 'content',
+    scope: 'both',
+    titleEn: 'Content',
+    titleUz: 'Content (Mazmun)',
+    descEn: 'Relevance, style, development, and effect on the reader/listener.',
+    descUz: 'Mavzuga moslik, uslub, fikrni rivojlantirish va o‘quvchi/tinglovchiga ta’siri.'
+  },
+  {
+    key: 'discourseCoherence',
+    scope: 'writing',
+    titleEn: 'Discourse Coherence',
+    titleUz: 'Discourse Coherence (Izchillik)',
+    descEn: 'Clarity, cohesion, progression of ideas, and structure (for writing questions only).',
+    descUz: 'Aniqlik, bog‘liqlik, fikrlar rivoji va tuzilma (faqat Writing savollari uchun).'
+  },
+  {
+    key: 'lexis',
+    scope: 'both',
+    titleEn: 'Lexis (Vocabulary)',
+    titleUz: 'Lexis (Lug‘at boyligi)',
+    descEn: 'Lexical diversity, lexical sophistication, choice of words, formation of words, and spelling (spelling: writing questions only).',
+    descUz: 'So‘z xilma-xilligi, akademik daraja, so‘z tanlash, so‘z yasalishi va imlo (imlo: faqat Writing savollari uchun).'
+  },
+  {
+    key: 'grammar',
+    scope: 'both',
+    titleEn: 'Grammar',
+    titleUz: 'Grammar (Grammatika)',
+    descEn: 'Grammatical complexity, grammatical accuracy, and punctuation (punctuation: writing questions only).',
+    descUz: 'Grammatik murakkablik, grammatik aniqlik va tinish belgilari (tinish belgilari: faqat Writing savollari uchun).'
+  },
+  {
+    key: 'fluency',
+    scope: 'speaking',
+    titleEn: 'Fluency',
+    titleUz: 'Fluency (Ravonlik)',
+    descEn: 'Speed; natural use of pauses; and reliance on filler words, repetition, and starting/stopping (speaking questions only).',
+    descUz: 'Nutq tezligi, tabiiy pauzalar, to‘ldiruvchi so‘zlar (um/uh/like), takrorlanish va to‘xtab-boshlash (faqat Speaking savollari uchun).'
+  },
+  {
+    key: 'pronunciation',
+    scope: 'speaking',
+    titleEn: 'Pronunciation',
+    titleUz: 'Pronunciation (Talaffuz)',
+    descEn: 'Intelligibility, individual sounds, word stress, sentence stress, and intonation (speaking questions only).',
+    descUz: 'Tushunarlilik, alohida tovushlar, so‘z urg‘usi, gap urg‘usi va intonatsiya (faqat Speaking savollari uchun).'
+  }
+];
+
+export const DET_FREQUENCY_TABLE = [
+  { id: 'read_select', name: 'Read and Select', frequency: '15–18', inMock: true },
+  { id: 'fill_blanks', name: 'Fill in the Blanks', frequency: '6–9', inMock: true },
+  { id: 'read_complete', name: 'Read and Complete', frequency: '3–6', inMock: true },
+  { id: 'listen_type', name: 'Listen and Type', frequency: '6–9', inMock: true },
+  { id: 'interactive_reading', name: 'Interactive Reading', frequency: '2 sets of 6 questions', inMock: true },
+  { id: 'interactive_listening', name: 'Interactive Listening', frequency: '2 sets of 8–10 questions', inMock: true },
+  { id: 'write_photo', name: 'Write About the Photo', frequency: '3', inMock: true },
+  { id: 'interactive_writing', name: 'Interactive Writing', frequency: '1 set of 2 questions', inMock: true },
+  { id: 'speak_photo', name: 'Speak About the Photo', frequency: '1', inMock: true },
+  { id: 'read_then_speak', name: 'Read, Then Speak', frequency: '1', inMock: true },
+  { id: 'interactive_speaking', name: 'Interactive Speaking', frequency: '1 set of 6–8 questions', inMock: false },
+  { id: 'writing_sample', name: 'Writing Sample', frequency: '1', inMock: true },
+  { id: 'speaking_sample', name: 'Speaking Sample', frequency: '1', inMock: true }
+];
+
 // Official July 2024 – 2026 DET Individual Subscore mapping
 export const SKILL_MAP = {
   read_select: ['reading'],
@@ -440,7 +508,7 @@ export function heuristicWritingScore({ text, minWords = 35, targetWords = 90, l
     return {
       estimatedScore: 20,
       isOfflineEstimate: true,
-      criteria: { grammar: 20, vocabulary: 20, coherence: 20, taskRelevance: 20 },
+      criteria: { content: 20, discourseCoherence: 20, lexis: 20, grammar: 20 },
       summary: lang === 'uz'
         ? 'Javob juda qisqa. Kamida bir nechta to‘liq gap yozishga harakat qiling.'
         : 'Response is too short. Aim for complete, connected sentences.',
@@ -463,10 +531,10 @@ export function heuristicWritingScore({ text, minWords = 35, targetWords = 90, l
     estimatedScore,
     isOfflineEstimate: true,
     criteria: {
-      grammar: roundDetScore(sub * 0.95),
-      vocabulary: roundDetScore(sub * (0.85 + lexicalRatio * 0.25)),
-      coherence: roundDetScore(sub),
-      taskRelevance: roundDetScore(words >= minWords ? sub : sub * 0.8)
+      content: roundDetScore(words >= minWords ? sub : sub * 0.8),
+      discourseCoherence: roundDetScore(sub),
+      lexis: roundDetScore(sub * (0.85 + lexicalRatio * 0.25)),
+      grammar: roundDetScore(sub * 0.95)
     },
     summary: lang === 'uz'
       ? `Taxminiy offline tahlil: ${words} ta so‘z (${sentences} ta gap). Aniq grammatika xatolari va C1/C2 tavsiyalari uchun Sozlamalarda Gemini AI kalitini ulang.`
@@ -488,7 +556,7 @@ export function heuristicSpeakingScore({ transcript, durationSec = 0, targetSec 
       estimatedScore: 20,
       isOfflineEstimate: true,
       transcript: transcript || '',
-      criteria: { pronunciation: 20, fluency: 20, grammar: 20, vocabulary: 20, relevance: 20 },
+      criteria: { content: 20, lexis: 20, grammar: 20, fluency: 20, pronunciation: 20 },
       summary: lang === 'uz'
         ? 'Ovoz juda qisqa yozildi. Kamida 30–60 soniya uzluksiz gapirishga harakat qiling.'
         : 'Recording was too brief. Try to speak continuously for 30–60 seconds.',
@@ -508,11 +576,11 @@ export function heuristicSpeakingScore({ transcript, durationSec = 0, targetSec 
     isOfflineEstimate: true,
     transcript: transcript || '',
     criteria: {
-      pronunciation: estimatedScore,
-      fluency: roundDetScore(estimatedScore * (0.85 + timeFactor * 0.15)),
+      content: estimatedScore,
+      lexis: estimatedScore,
       grammar: estimatedScore,
-      vocabulary: estimatedScore,
-      relevance: estimatedScore
+      fluency: roundDetScore(estimatedScore * (0.85 + timeFactor * 0.15)),
+      pronunciation: estimatedScore
     },
     summary: lang === 'uz'
       ? `Taxminiy offline baho (${Math.round(durationSec)} soniya gapirildi). Haqiqiy talaffuz va grammatika tahlili uchun Gemini AI kalitini ulang.`

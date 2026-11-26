@@ -1,5 +1,5 @@
 import { getQuestionTypeMeta, getBankCapacity, pickQuestionFromBank } from './questions-bank.js';
-import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, escapeHtml } from './renderers.js';
+import { mountQuestionRenderer, gradeAnyItem, renderFeedbackCard, renderScoringGuideHtml, escapeHtml } from './renderers.js';
 import { computeSubscores, nextAdaptiveDifficulty, scoreToIelts, scoreToCefr } from './scoring.js';
 import { speakText, stopSpeaking, unlockSpeech, AudioRecorder, WebcamMonitor } from './speech.js';
 import { generateQuestion } from './gemini.js';
@@ -30,23 +30,41 @@ export const EXPRESS_BLUEPRINT = [
 export const FULL_BLUEPRINT = [
   'read_select',
   'fill_blanks',
-  'read_select',
   'listen_type',
-  'read_then_speak',
+  'read_select',
+  'write_photo',
+  'read_select',
+  'fill_blanks',
+  'listen_type',
+  'read_select',
   'read_complete',
   'read_select',
   'fill_blanks',
   'listen_type',
   'read_select',
-  'fill_blanks',
-  'read_complete',
-  'listen_type',
-  'speak_photo',
+  'write_photo',
   'read_select',
   'fill_blanks',
+  'read_complete',
+  'read_select',
+  'listen_type',
+  'read_select',
+  'fill_blanks',
+  'read_select',
+  'listen_type',
+  'read_select',
+  'write_photo',
+  'read_select',
+  'fill_blanks',
+  'read_select',
+  'read_complete',
+  'read_select',
+  'listen_type',
+  'read_select',
+  'interactive_reading',
   'interactive_reading',
   'interactive_listening',
-  'write_photo',
+  'interactive_listening',
   'interactive_writing',
   'speak_photo',
   'read_then_speak',
@@ -177,13 +195,20 @@ export function renderScoreReport(container, report, { lang = 'uz', onDone }) {
           <div class="card" style="background:var(--bg);box-shadow:none;">
             <h3 class="card-title" style="margin-bottom:14px;">${escapeHtml(t(lang, 'integratedSkills'))}</h3>
             <div class="subscore-list">
-              ${renderBar('Literacy', integ.literacy, 'blue')}
-              ${renderBar('Comprehension', integ.comprehension, '')}
-              ${renderBar('Conversation', integ.conversation, 'green')}
-              ${renderBar('Production', integ.production, 'amber')}
+              ${renderBar('Production (W+S)', integ.production, 'amber')}
+              ${renderBar('Literacy (R+W)', integ.literacy, 'blue')}
+              ${renderBar('Comprehension (L+R)', integ.comprehension, '')}
+              ${renderBar('Conversation (S+L)', integ.conversation, 'green')}
             </div>
           </div>
         </div>
+
+        <details class="det-guide-details no-print" style="margin-bottom:22px;">
+          <summary style="cursor:pointer;font-weight:800;font-size:14px;">ℹ️ ${escapeHtml(lang === 'uz' ? 'Baholash tizimi va rasmiy DET mezonlari' : 'Understand scoring & official DET rules')}</summary>
+          <div style="margin-top:14px;">
+            ${renderScoringGuideHtml(lang, { showFrequency: false })}
+          </div>
+        </details>
 
         <div class="no-print" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:26px;">
           <button type="button" id="rep-back" class="btn btn-primary">${escapeHtml(t(lang, 'backToDash'))}</button>

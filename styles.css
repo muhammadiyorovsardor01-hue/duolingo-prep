@@ -3343,3 +3343,155 @@ button {
     line-height: 1.72;
   }
 }
+
+/* =========================================================
+   OFFICIAL DET SCORING GUIDE, RUBRIC & FREQUENCY TABLE
+   ========================================================= */
+.criteria-sub {
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.det-score-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.det-score-guide-card {
+  padding: 20px 22px;
+}
+
+.det-guide-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.det-guide-sub {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.det-score-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  border: 1.5px solid #E5E7EB;
+  border-radius: 16px;
+  padding: 16px 14px;
+  background: #FFFFFF;
+}
+
+.det-score-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #4B4B4B;
+}
+
+.det-score-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.det-plus {
+  font-size: 16px;
+  font-weight: 800;
+  color: #9CA3AF;
+}
+
+.det-rubric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.det-rubric-card {
+  border: 1.5px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 13px 15px;
+  background: var(--bg);
+}
+
+.det-rubric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.det-rubric-desc {
+  margin: 0;
+  font-size: 12.8px;
+  line-height: 1.48;
+  color: var(--ink-muted);
+}
+
+.det-freq-table-wrap {
+  border: 1.5px solid #E5E7EB;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #FFFFFF;
+}
+
+.det-freq-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.det-freq-table th,
+.det-freq-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid #E5E7EB;
+  text-align: left;
+  color: var(--ink);
+}
+
+.det-freq-table thead th {
+  background: var(--surface-subtle);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-muted);
+}
+
+.det-freq-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.det-freq-table tbody tr.muted-row td {
+  color: var(--ink-muted);
+}
+
+.det-guide-details {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: var(--bg);
+}
+
+@media (max-width: 720px) {
+  .det-score-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .det-rubric-grid {
+    grid-template-columns: 1fr;
+  }
+}

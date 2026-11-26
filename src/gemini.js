@@ -119,7 +119,12 @@ export async function evaluateWriting({
     ? 'Write "summary", correction "explanation", and "keyTips" in clear natural Uzbek (using Latin script), while keeping "original", "corrected", and "upgradedVersion" in English.'
     : 'Write all feedback in clear English.';
 
-  const sysPrompt = `You are a certified Duolingo English Test (DET) examiner. Grade this candidate's writing response strictly on the official DET 10–160 scale (in 5-point increments).
+  const sysPrompt = `You are a certified Duolingo English Test (DET) examiner. Grade this candidate's writing response strictly on the official DET 10–160 scale (in 5-point increments) using the 4 official DET Writing rubric criteria:
+- content: relevance, style, development, and effect on the reader
+- discourseCoherence: clarity, cohesion, progression of ideas, and structure
+- lexis: lexical diversity, lexical sophistication, choice of words, formation of words, and spelling
+- grammar: grammatical complexity, grammatical accuracy, and punctuation
+
 Task type: ${taskType}
 Prompt: ${prompt}
 ${imageDescription ? `Visual Scene Description: ${imageDescription}` : ''}
@@ -135,12 +140,12 @@ Return ONLY valid JSON with this exact schema:
 {
   "estimatedScore": 115,
   "criteria": {
-    "grammar": 115,
-    "vocabulary": 110,
-    "coherence": 120,
-    "taskRelevance": 120
+    "content": 120,
+    "discourseCoherence": 115,
+    "lexis": 110,
+    "grammar": 115
   },
-  "summary": "2-3 concise sentences evaluating strengths and weaknesses.",
+  "summary": "2-3 concise sentences evaluating content, discourse coherence, lexis, and grammar.",
   "corrections": [
     {
       "original": "exact weak or incorrect phrase from student",
@@ -157,10 +162,10 @@ Return ONLY valid JSON with this exact schema:
     estimatedScore: roundDetScore(raw.estimatedScore || 60),
     isOfflineEstimate: false,
     criteria: {
-      grammar: roundDetScore(raw.criteria?.grammar || raw.estimatedScore || 60),
-      vocabulary: roundDetScore(raw.criteria?.vocabulary || raw.estimatedScore || 60),
-      coherence: roundDetScore(raw.criteria?.coherence || raw.estimatedScore || 60),
-      taskRelevance: roundDetScore(raw.criteria?.taskRelevance || raw.estimatedScore || 60)
+      content: roundDetScore(raw.criteria?.content ?? raw.criteria?.taskRelevance ?? raw.estimatedScore ?? 60),
+      discourseCoherence: roundDetScore(raw.criteria?.discourseCoherence ?? raw.criteria?.coherence ?? raw.estimatedScore ?? 60),
+      lexis: roundDetScore(raw.criteria?.lexis ?? raw.criteria?.vocabulary ?? raw.estimatedScore ?? 60),
+      grammar: roundDetScore(raw.criteria?.grammar ?? raw.estimatedScore ?? 60)
     },
     summary: String(raw.summary || ''),
     corrections: Array.isArray(raw.corrections) ? raw.corrections.slice(0, 5) : [],
@@ -195,7 +200,13 @@ export async function evaluateSpeaking({
     });
   }
 
-  const textPrompt = `You are a certified Duolingo English Test (DET) speaking examiner. Evaluate this candidate's spoken response on the official DET 10–160 scale (5-point increments).
+  const textPrompt = `You are a certified Duolingo English Test (DET) speaking examiner. Evaluate this candidate's spoken response on the official DET 10–160 scale (5-point increments) using the 5 official DET Speaking rubric criteria:
+- content: relevance, style, development, and effect on the listener
+- lexis: lexical diversity, lexical sophistication, choice of words, and formation of words
+- grammar: grammatical complexity and grammatical accuracy
+- fluency: speed; natural use of pauses; and reliance on filler words, repetition, and starting/stopping
+- pronunciation: intelligibility, individual sounds, word stress, sentence stress, and intonation
+
 Task type: ${taskType}
 Prompt: ${prompt}
 ${imageDescription ? `Image Scene Description: ${imageDescription}` : ''}
@@ -203,7 +214,6 @@ Speaking duration: ${Math.round(durationSec)} seconds.
 ${transcript ? `Browser speech-to-text hint (may have minor errors; trust the attached audio if present): "${transcript}"` : ''}
 ${!audioBase64 && !transcript ? 'Note: No audio or speech was captured.' : ''}
 
-Analyze pronunciation, natural fluency/pauses, grammatical accuracy, lexical sophistication, and task relevance.
 ${langInstruction}
 
 Return ONLY valid JSON with this exact schema:
@@ -211,13 +221,13 @@ Return ONLY valid JSON with this exact schema:
   "estimatedScore": 115,
   "transcript": "accurate verbatim transcription of what the candidate said",
   "criteria": {
-    "pronunciation": 110,
-    "fluency": 115,
+    "content": 120,
+    "lexis": 110,
     "grammar": 115,
-    "vocabulary": 110,
-    "relevance": 120
+    "fluency": 115,
+    "pronunciation": 110
   },
-  "summary": "2-3 concise sentences on pronunciation, fluency, and grammar.",
+  "summary": "2-3 concise sentences evaluating content, lexis, grammar, fluency, and pronunciation.",
   "corrections": [
     {
       "original": "spoken error or awkward phrasing",
@@ -237,11 +247,11 @@ Return ONLY valid JSON with this exact schema:
     isOfflineEstimate: false,
     transcript: String(raw.transcript || transcript || ''),
     criteria: {
-      pronunciation: roundDetScore(raw.criteria?.pronunciation || raw.estimatedScore || 60),
-      fluency: roundDetScore(raw.criteria?.fluency || raw.estimatedScore || 60),
-      grammar: roundDetScore(raw.criteria?.grammar || raw.estimatedScore || 60),
-      vocabulary: roundDetScore(raw.criteria?.vocabulary || raw.estimatedScore || 60),
-      relevance: roundDetScore(raw.criteria?.relevance || raw.estimatedScore || 60)
+      content: roundDetScore(raw.criteria?.content ?? raw.criteria?.relevance ?? raw.estimatedScore ?? 60),
+      lexis: roundDetScore(raw.criteria?.lexis ?? raw.criteria?.vocabulary ?? raw.estimatedScore ?? 60),
+      grammar: roundDetScore(raw.criteria?.grammar ?? raw.estimatedScore ?? 60),
+      fluency: roundDetScore(raw.criteria?.fluency ?? raw.estimatedScore ?? 60),
+      pronunciation: roundDetScore(raw.criteria?.pronunciation ?? raw.estimatedScore ?? 60)
     },
     summary: String(raw.summary || ''),
     corrections: Array.isArray(raw.corrections) ? raw.corrections.slice(0, 5) : [],
