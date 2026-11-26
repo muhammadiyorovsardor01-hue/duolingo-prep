@@ -337,6 +337,22 @@ function validateGeneratedQuestion(type, raw, difficulty) {
       if (!raw.prompt) throw new Error('Invalid sample prompt');
       return { ...base, prompt: String(raw.prompt) };
     }
+    case 'interactive_speaking': {
+      const turns = Array.isArray(raw.turns)
+        ? raw.turns
+            .slice(0, 8)
+            .map((t) => ({ audioText: String(t?.audioText ?? t ?? '').trim() }))
+            .filter((t) => t.audioText.length > 5)
+        : [];
+      if (turns.length < 6) throw new Error('Invalid interactive_speaking');
+      return {
+        ...base,
+        interviewerName: String(raw.interviewerName || 'Alex'),
+        topicTitle: String(raw.topicTitle || 'Live Interview'),
+        scenario: String(raw.scenario || 'A 6-question live spoken interview.'),
+        turns
+      };
+    }
     default:
       throw new Error(`Unsupported AI question type: ${type}`);
   }
@@ -391,7 +407,21 @@ export async function generateQuestion({ apiKey, model = DEFAULT_GEMINI_MODEL, t
     interactive_writing: `Create 1 DET "Interactive Writing" 2-part prompt at ${cefr}. Return JSON: {"part1Prompt": "Main opinion/argument prompt (5 min)", "part2Prompt": "Follow-up prompt asking for counterargument or consequence (3 min)"}`,
     read_then_speak: `Create 1 DET "Read, Then Speak" prompt at ${cefr} with 3 bullet points to cover. Return JSON: {"prompt": "Topic question or instruction", "bullets": ["Bullet 1", "Bullet 2", "Bullet 3"]}`,
     writing_sample: `Create 1 DET "Writing Sample" argumentative/reflective prompt at ${cefr}. Return JSON: {"prompt": "..."}`,
-    speaking_sample: `Create 1 DET "Speaking Sample" open-ended prompt at ${cefr}. Return JSON: {"prompt": "..."}`
+    speaking_sample: `Create 1 DET "Speaking Sample" open-ended prompt at ${cefr}. Return JSON: {"prompt": "..."}`,
+    interactive_speaking: `Create 1 official DET "Interactive Speaking" 6-question audio interview set at ${cefr}. Turns 1-3 should explore an accessible personal/campus topic; turns 4-6 should pivot naturally to a deeper analytical follow-up topic. Each question should be 1-2 natural spoken sentences answerable in 35 seconds. Return JSON:
+{
+  "interviewerName": "Maya",
+  "topicTitle": "Short topic arc title",
+  "scenario": "Brief 1-sentence description of the conversation.",
+  "turns": [
+    {"audioText": "Question 1..."},
+    {"audioText": "Question 2..."},
+    {"audioText": "Question 3..."},
+    {"audioText": "Question 4..."},
+    {"audioText": "Question 5..."},
+    {"audioText": "Question 6..."}
+  ]
+}`
   };
 
   const taskSpec = schemas[type];

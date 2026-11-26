@@ -68,6 +68,7 @@ export const FULL_BLUEPRINT = [
   'interactive_writing',
   'speak_photo',
   'read_then_speak',
+  'interactive_speaking',
   'writing_sample',
   'speaking_sample'
 ];
@@ -767,10 +768,14 @@ export function launchMockExamFlow({ container, mainEl, topNavEl, mode = 'expres
 
       const storageReport = {
         ...report,
-        items: report.items.map((entry) => ({
-          item: entry.item,
-          result: entry.result.audioUrl ? { ...entry.result, audioUrl: '' } : entry.result
-        }))
+        items: report.items.map((entry) => {
+          const cleanRes = { ...entry.result };
+          if (cleanRes.audioUrl) cleanRes.audioUrl = '';
+          if (Array.isArray(cleanRes.turnAnswers)) {
+            cleanRes.turnAnswers = cleanRes.turnAnswers.map((tA) => ({ ...tA, objectUrl: '' }));
+          }
+          return { item: entry.item, result: cleanRes };
+        })
       };
 
       recordExamReport(storageReport);

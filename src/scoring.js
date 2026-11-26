@@ -24,6 +24,7 @@ export const TASK_WEIGHTS = {
   speak_photo: 2.5,
   read_then_speak: 3.0,
   speaking_sample: 3.5,
+  interactive_speaking: 3.5,
   read_aloud: 1.5
 };
 
@@ -134,7 +135,7 @@ export const DET_FREQUENCY_TABLE = [
   { id: 'interactive_writing', name: 'Interactive Writing', frequency: '1 set of 2 questions', inMock: true },
   { id: 'speak_photo', name: 'Speak About the Photo', frequency: '1', inMock: true },
   { id: 'read_then_speak', name: 'Read, Then Speak', frequency: '1', inMock: true },
-  { id: 'interactive_speaking', name: 'Interactive Speaking', frequency: '1 set of 6–8 questions', inMock: false },
+  { id: 'interactive_speaking', name: 'Interactive Speaking', frequency: '1 set of 6–8 questions', inMock: true },
   { id: 'writing_sample', name: 'Writing Sample', frequency: '1', inMock: true },
   { id: 'speaking_sample', name: 'Speaking Sample', frequency: '1', inMock: true }
 ];
@@ -153,6 +154,7 @@ export const SKILL_MAP = {
   speak_photo: ['speaking'],
   read_then_speak: ['speaking'],
   speaking_sample: ['speaking'],
+  interactive_speaking: ['speaking'],
   read_aloud: ['speaking']
 };
 

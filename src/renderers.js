@@ -947,6 +947,300 @@ export function mountQuestionRenderer(container, item, options = {}) {
     };
   }
 
+  // 9. INTERACTIVE SPEAKING (6-turn audio-only interview, 35s/turn, 1 play only)
+  else if (type === 'interactive_speaking') {
+    const turns = Array.isArray(item.turns) && item.turns.length > 0
+      ? item.turns
+      : [{ audioText: 'Tell me about a skill or topic you enjoy learning about and why it matters to you.' }];
+    const turnDurationSec = item.turnDurationSec || 35;
+    const recorder = new AudioRecorder();
+
+    let turnIdx = 0;
+    let phase = 'listening'; // 'listening' | 'blocked' | 'recording' | 'fallback' | 'done'
+    let turnRemaining = turnDurationSec;
+    let turnTimerId = null;
+    let autoPlayTimer = null;
+    let audioRetryAllowed = false;
+    let disposed = false;
+    let finishingTurn = false;
+    const turnAnswers = [];
+
+    const clearTurnTimers = () => {
+      if (turnTimerId) { clearInterval(turnTimerId); turnTimerId = null; }
+      if (autoPlayTimer) { clearTimeout(autoPlayTimer); autoPlayTimer = null; }
+    };
+
+    const renderIS = () => {
+      if (disposed) return;
+
+      if (phase === 'done' || turnIdx >= turns.length) {
+        onSubmitReady?.(true);
+        const answeredCount = turnAnswers.filter((a) => a.durationSec > 0 || a.transcript).length;
+        container.innerHTML = `
+          <div class="det-is-wrap">
+            <div class="det-is-complete-card">
+              <div class="det-is-badge-ok">✓</div>
+              <h3 class="det-q-prompt" style="margin:0 0 6px;">${lang === 'uz' ? 'Suhbat yakunlandi!' : 'Interactive Speaking Complete!'}</h3>
+              <p class="det-q-hint" style="margin:0 0 14px;">
+                ${lang === 'uz'
+                  ? `${answeredCount}/${turns.length} ta suhbat savoliga javob yozib olindi. Natijani ko‘rish uchun javobni yuboring.`
+                  : `Recorded responses for ${answeredCount}/${turns.length} interview questions. Submit to see your DET evaluation.`}
+              </p>
+              <div class="det-is-dots">
+                ${turns.map((_, idx) => `<span class="det-is-dot ${idx < turnAnswers.length ? 'done' : ''}">${idx + 1}</span>`).join('')}
+              </div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      onSubmitReady?.(false);
+      const speakerSvg = `
+        <div class="det-is-avatar-ring ${phase === 'listening' ? 'speaking' : ''}">
+          <div class="det-is-avatar">
+            <svg width="42" height="42" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+              <circle cx="24" cy="17" r="7.5" fill="#1CB0F6"/>
+              <path d="M11 39C11 32 16.5 27.5 24 27.5C31.5 27.5 37 32 37 39" fill="#1CB0F6"/>
+            </svg>
+          </div>
+        </div>
+      `;
+
+      let stageBody = '';
+      if (phase === 'listening') {
+        stageBody = `
+          <div class="det-is-status-title">${lang === 'uz' ? 'Savolni diqqat bilan tinglang...' : 'Listen carefully to the question...'}</div>
+          <p class="det-q-hint" style="margin:0;">${lang === 'uz' ? 'Audio faqat 1 marta chalinadi. Tugashi bilan mikrofon avtomatik yoqiladi.' : 'Each question plays once. Your microphone starts automatically afterward.'}</p>
+        `;
+      } else if (phase === 'blocked') {
+        stageBody = `
+          <div class="det-is-status-title">${lang === 'uz' ? 'Savolni eshitish uchun bosing' : 'Click to hear the question'}</div>
+          <p class="det-q-hint" style="margin:0 0 12px;">${lang === 'uz' ? 'Har bir savol faqat 1 marta eshitiladi.' : 'Audio plays once per question.'}</p>
+          <button type="button" id="is-play-once" class="btn btn-primary btn-sm">▶ ${lang === 'uz' ? 'Savolni eshitish (1x)' : 'Play Question (1x)'}</button>
+        `;
+      } else if (phase === 'recording') {
+        stageBody = `
+          <div class="det-is-rec-row">
+            <span class="rec-dot"></span>
+            <span>${lang === 'uz' ? 'Javob yozilmoqda...' : 'Recording your answer...'}</span>
+            <span class="det-is-turn-timer" id="is-turn-sec">${turnRemaining}s</span>
+          </div>
+          <div class="mic-meter-wrap" style="max-width:420px;margin:10px auto;"><div id="is-mic-fill" class="mic-meter-fill"></div></div>
+          <button type="button" id="is-finish-turn" class="btn btn-primary btn-sm">⏹ ${turnIdx < turns.length - 1 ? (lang === 'uz' ? 'Javobni tugatib keyingisiga o‘tish →' : 'Done & Next Question →') : (lang === 'uz' ? 'Suhbatni yakunlash ✓' : 'Finish Interview ✓')}</button>
+          <div class="transcript-preview" id="is-live-tr">${lang === 'uz' ? 'Jonli nutq matni (brauzer qo‘llab-quvvatlasa)...' : 'Listening for speech...'}</div>
+        `;
+      } else if (phase === 'fallback') {
+        stageBody = `
+          <div class="banner banner-warn" style="margin-bottom:10px;text-align:left;">
+            <span>${lang === 'uz' ? 'Mikrofon topilmadi — ushbu savolga javobingizni qisqacha matn bilan yozib davom etishingiz mumkin:' : 'Microphone unavailable — type what you would say for this turn:'}</span>
+          </div>
+          <textarea id="is-fallback-text" class="det-textarea" style="min-height:95px;" placeholder="${lang === 'uz' ? 'Javobingizni ingliz tilida yozing...' : 'Type your response in English...'}"></textarea>
+          <div style="margin-top:10px;display:flex;justify-content:flex-end;">
+            <button type="button" id="is-fallback-next" class="btn btn-primary btn-sm">${turnIdx < turns.length - 1 ? (lang === 'uz' ? 'Keyingi savol →' : 'Next Question →') : (lang === 'uz' ? 'Yakunlash ✓' : 'Finish ✓')}</button>
+          </div>
+        `;
+      }
+
+      container.innerHTML = `
+        <div class="det-is-wrap">
+          <div class="det-is-top">
+            <span class="tag tag-speaking">Question ${turnIdx + 1} of ${turns.length}</span>
+            ${item.topicTitle ? `<span class="tag">${escapeHtml(item.topicTitle)}</span>` : ''}
+            <span class="det-is-dots-inline">
+              ${turns.map((_, idx) => `<span class="det-is-pip ${idx < turnIdx ? 'done' : idx === turnIdx ? 'active' : ''}"></span>`).join('')}
+            </span>
+          </div>
+          <h3 class="det-q-prompt" style="margin-bottom:6px;">Interactive Speaking</h3>
+          <p class="det-q-hint" style="margin-bottom:14px;">${escapeHtml(item.scenario || (lang === 'uz' ? 'Savolni tinglang va 35 soniya ichida javob bering.' : 'Listen to each prompt once and respond within 35 seconds.'))}</p>
+          <div class="det-is-stage">
+            ${speakerSvg}
+            <div class="det-is-name">${escapeHtml(item.interviewerName || 'Interviewer')}</div>
+            <div class="det-is-body">${stageBody}</div>
+          </div>
+        </div>
+      `;
+
+      if (phase === 'blocked') {
+        container.querySelector('#is-play-once')?.addEventListener('click', () => {
+          unlockSpeech();
+          playCurrentPrompt();
+        });
+      } else if (phase === 'recording') {
+        container.querySelector('#is-finish-turn')?.addEventListener('click', () => finishCurrentTurn());
+      } else if (phase === 'fallback') {
+        container.querySelector('#is-fallback-next')?.addEventListener('click', () => submitFallbackTurn());
+      }
+    };
+
+    const startTurnRecording = async () => {
+      if (disposed || phase === 'recording' || phase === 'done') return;
+      clearTurnTimers();
+      phase = 'recording';
+      turnRemaining = turnDurationSec;
+      renderIS();
+
+      try {
+        await recorder.start({
+          onLevel: (lvl) => {
+            if (disposed) return;
+            const fill = container.querySelector('#is-mic-fill');
+            if (fill) fill.style.width = `${lvl}%`;
+          },
+          onTranscript: (tr) => {
+            if (disposed) return;
+            const el = container.querySelector('#is-live-tr');
+            if (el) el.textContent = tr || '...';
+          }
+        });
+        if (disposed) {
+          recorder.abort();
+          return;
+        }
+        turnTimerId = setInterval(() => {
+          if (disposed || phase !== 'recording') return;
+          turnRemaining -= 1;
+          const secEl = container.querySelector('#is-turn-sec');
+          if (secEl) secEl.textContent = `${Math.max(0, turnRemaining)}s`;
+          if (turnRemaining <= 0) {
+            finishCurrentTurn();
+          }
+        }, 1000);
+      } catch {
+        if (disposed) return;
+        phase = 'fallback';
+        renderIS();
+      }
+    };
+
+    const advanceAfterTurn = () => {
+      turnIdx += 1;
+      finishingTurn = false;
+      if (turnIdx >= turns.length) {
+        phase = 'done';
+        renderIS();
+      } else {
+        phase = 'listening';
+        renderIS();
+        autoPlayTimer = setTimeout(() => playCurrentPrompt(), 220);
+      }
+    };
+
+    const finishCurrentTurn = async () => {
+      if (disposed || finishingTurn || phase !== 'recording') return;
+      finishingTurn = true;
+      clearTurnTimers();
+
+      const currentTurn = turns[turnIdx];
+      let res = null;
+      if (recorder.isRecording) {
+        res = await recorder.stop();
+      }
+      if (disposed) return;
+
+      turnAnswers.push({
+        question: currentTurn.audioText,
+        transcript: res?.liveTranscript || '',
+        durationSec: res?.durationSec || 0,
+        objectUrl: res?.objectUrl || '',
+        base64: res?.base64 || '',
+        mimeType: res?.mimeType || ''
+      });
+
+      advanceAfterTurn();
+    };
+
+    const submitFallbackTurn = () => {
+      if (disposed || finishingTurn || phase !== 'fallback') return;
+      finishingTurn = true;
+      const currentTurn = turns[turnIdx];
+      const fb = container.querySelector('#is-fallback-text')?.value?.trim() || '';
+      const fbWords = countWords(fb);
+      const estSec = fbWords > 0 ? Math.max(6, Math.min(35, Math.round((fbWords / 130) * 60))) : 0;
+      turnAnswers.push({
+        question: currentTurn.audioText,
+        transcript: fb,
+        durationSec: estSec,
+        objectUrl: '',
+        base64: '',
+        mimeType: ''
+      });
+      advanceAfterTurn();
+    };
+
+    const playCurrentPrompt = () => {
+      if (disposed || turnIdx >= turns.length) return;
+      const myTurnIdx = turnIdx;
+      const currentTurn = turns[myTurnIdx];
+      phase = 'listening';
+      audioRetryAllowed = true;
+      renderIS();
+
+      speakText(currentTurn.audioText, {
+        rate: settings.ttsRate || 1.0,
+        voiceName: settings.ttsVoice || '',
+        onStart: () => {
+          audioRetryAllowed = false;
+        },
+        onEnd: () => {
+          if (disposed || myTurnIdx !== turnIdx) return;
+          startTurnRecording();
+        },
+        onError: () => {
+          if (disposed || myTurnIdx !== turnIdx) return;
+          if (audioRetryAllowed) {
+            audioRetryAllowed = false;
+            phase = 'blocked';
+            renderIS();
+          } else {
+            startTurnRecording();
+          }
+        }
+      });
+    };
+
+    renderIS();
+    autoPlayTimer = setTimeout(() => playCurrentPrompt(), 180);
+
+    registerCleanup(() => {
+      disposed = true;
+      clearTurnTimers();
+      stopSpeaking();
+      recorder.abort();
+    });
+
+    getAnswer = async () => {
+      clearTurnTimers();
+      stopSpeaking();
+      if (recorder.isRecording && turnIdx < turns.length) {
+        const res = await recorder.stop();
+        turnAnswers.push({
+          question: turns[turnIdx].audioText,
+          transcript: res?.liveTranscript || '',
+          durationSec: res?.durationSec || 0,
+          objectUrl: res?.objectUrl || '',
+          base64: res?.base64 || '',
+          mimeType: res?.mimeType || ''
+        });
+      } else if (phase === 'fallback' && turnIdx < turns.length) {
+        const fb = container.querySelector('#is-fallback-text')?.value?.trim() || '';
+        const fbWords = countWords(fb);
+        const estSec = fbWords > 0 ? Math.max(6, Math.min(35, Math.round((fbWords / 130) * 60))) : 0;
+        turnAnswers.push({
+          question: turns[turnIdx].audioText,
+          transcript: fb,
+          durationSec: estSec,
+          objectUrl: '',
+          base64: '',
+          mimeType: ''
+        });
+      }
+      const combinedTranscript = turnAnswers.map((tA) => tA.transcript).filter(Boolean).join(' ');
+      const totalDurationSec = turnAnswers.reduce((sum, tA) => sum + (tA.durationSec || 0), 0);
+      return { turns: turnAnswers, combinedTranscript, totalDurationSec };
+    };
+  }
+
   return {
     getAnswer,
     cleanup: () => {
@@ -1137,6 +1431,74 @@ export async function gradeAnyItem({ item, answer, settings = {} }) {
     };
   }
 
+  if (type === 'interactive_speaking') {
+    const turns = Array.isArray(answer?.turns) ? answer.turns : [];
+    const totalTurns = Array.isArray(item.turns) ? item.turns.length : turns.length;
+    const answeredTurns = turns.filter((tA) => (tA.durationSec || 0) > 0 || (tA.transcript || '').trim()).length;
+    const totalDurationSec = turns.reduce((sum, tA) => sum + (Number(tA.durationSec) || 0), 0);
+    const combinedTranscript = turns.map((tA) => tA.transcript).filter(Boolean).join(' ').trim();
+    const qaPrompt = turns
+      .map((tA, i) => `Q${i + 1}: ${tA.question}\nA${i + 1}: ${tA.transcript || `[${Math.round(tA.durationSec || 0)}s audio]`}`)
+      .join('\n\n') || (item.scenario || 'Interactive Speaking 6-question interview');
+    const firstAudio = turns.find((tA) => tA.base64);
+
+    let aiFeedback;
+    if (hasApi && (firstAudio?.base64 || combinedTranscript.length > 4)) {
+      try {
+        aiFeedback = await evaluateSpeaking({
+          apiKey: settings.apiKey,
+          model: settings.model,
+          taskType: 'interactive_speaking',
+          prompt: qaPrompt,
+          audioBase64: firstAudio?.base64 || '',
+          mimeType: firstAudio?.mimeType || 'audio/webm',
+          transcript: combinedTranscript,
+          imageDescription: item.scenario || '',
+          durationSec: totalDurationSec,
+          feedbackLang: lang
+        });
+      } catch (err) {
+        aiFeedback = await evaluateSpeakingSmart({
+          taskType: 'interactive_speaking',
+          prompt: qaPrompt,
+          transcript: combinedTranscript,
+          imageDescription: item.scenario || '',
+          durationSec: totalDurationSec,
+          lang
+        });
+        aiFeedback.apiError = err?.message || 'Gemini fallback';
+      }
+    } else {
+      aiFeedback = await evaluateSpeakingSmart({
+        taskType: 'interactive_speaking',
+        prompt: qaPrompt,
+        transcript: combinedTranscript,
+        imageDescription: item.scenario || '',
+        durationSec: totalDurationSec,
+        lang
+      });
+    }
+
+    const detScore = aiFeedback.estimatedScore;
+    return {
+      type: 'interactive_speaking',
+      detScore,
+      pctScore: Math.round(((detScore - 10) / 150) * 100),
+      correct: detScore >= 110,
+      answeredTurns,
+      totalTurns,
+      turnAnswers: turns.map((tA) => ({
+        question: tA.question,
+        transcript: tA.transcript,
+        durationSec: tA.durationSec,
+        objectUrl: tA.objectUrl || ''
+      })),
+      userSummary: `${answeredTurns}/${totalTurns} turns (${Math.round(totalDurationSec)}s)`,
+      expected: '120+ DET benchmark',
+      aiFeedback
+    };
+  }
+
   return {
     type,
     detScore: pctToDetScore(50),
@@ -1287,8 +1649,8 @@ export function renderScoringGuideHtml(lang = 'uz', { showFrequency = true } = {
             <div>
               <h3 class="card-title">${uz ? 'Rasmiy DET savol turlari soni (To‘liq Mock tarkibi)' : 'Official Question Frequency (Full Mock Blueprint)'}</h3>
               <p class="det-guide-sub" style="margin-top:2px;">${uz
-                ? 'To‘liq Mock Imtihon rasmiy DET chastotasi asosida tuzilgan (Interactive Speaking tashqari barcha 12 tur faol).'
-                : 'Full Mock Exam follows the official DET frequency table across all 12 active task types.'}</p>
+                ? 'To‘liq Mock Imtihon rasmiy DET chastotasi asosida tuzilgan (barcha 13 ta rasmiy tur faol).'
+                : 'Full Mock Exam follows the official DET frequency table across all 13 active task types.'}</p>
             </div>
           </div>
           <div class="det-freq-table-wrap">
@@ -1387,6 +1749,21 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
         `).join('')}
       </div>
     `;
+  } else if (result.type === 'interactive_speaking') {
+    bodyHtml = `
+      <div style="margin:12px 0;">
+        <div style="font-weight:800;margin-bottom:8px;">${result.answeredTurns}/${result.totalTurns} ${lang === 'uz' ? 'ta suhbat savoli yozildi' : 'interview questions recorded'}</div>
+        ${(result.turnAnswers || []).map((tA, i) => `
+          <div class="det-is-review-row">
+            <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Q${i + 1}: ${escapeHtml(tA.question)}</div>
+            <div style="font-size:12.5px;color:var(--ink-muted);margin-bottom:${tA.objectUrl ? '6px' : '0'};">
+              ${tA.transcript ? escapeHtml(tA.transcript) : `${Math.round(tA.durationSec || 0)}s audio`}
+            </div>
+            ${tA.objectUrl ? `<audio controls src="${escapeHtml(tA.objectUrl)}" style="width:100%;max-width:380px;height:32px;"></audio>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
   }
 
   if (result.audioUrl) {
@@ -1405,7 +1782,7 @@ export function renderFeedbackCard({ item, result, lang = 'uz', onSaveMistake })
           `<span class="tag ${w.ok ? 'tag-speaking' : 'tag-danger'}">${escapeHtml(w.expected)}</span>`
         ).join('')}</div>`
       : '';
-    const isSpeaking = ['read_aloud', 'speak_photo', 'read_then_speak', 'speaking_sample'].includes(result.type);
+    const isSpeaking = ['read_aloud', 'speak_photo', 'read_then_speak', 'speaking_sample', 'interactive_speaking'].includes(result.type);
     const smartChips = [];
     if (fb.isSmartFreeEval) {
       smartChips.push(`<span class="tag tag-ai">⚡ ${escapeHtml(fb.engineLabel || 'Smart DET Rubric Engine (Free)')}</span>`);

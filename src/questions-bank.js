@@ -10,6 +10,7 @@ export const QUESTION_TYPES = [
   {
     id: 'read_select',
     name: 'Read and Select',
+    category: 'reading',
     skills: ['reading'],
     durationSec: 5,
     sessionLength: 15,
@@ -21,6 +22,7 @@ export const QUESTION_TYPES = [
   {
     id: 'fill_blanks',
     name: 'Fill in the Blanks',
+    category: 'reading',
     skills: ['reading'],
     durationSec: 20,
     sessionLength: 5,
@@ -32,6 +34,7 @@ export const QUESTION_TYPES = [
   {
     id: 'read_complete',
     name: 'Read and Complete',
+    category: 'reading',
     skills: ['reading'],
     durationSec: 180,
     sessionLength: 2,
@@ -41,30 +44,9 @@ export const QUESTION_TYPES = [
     icon: '📄'
   },
   {
-    id: 'listen_type',
-    name: 'Listen and Type',
-    skills: ['listening'],
-    durationSec: 60,
-    sessionLength: 6,
-    descUz: 'Gapni tinglang (ko‘pi bilan 3 marta) va eshitganingizni aniq yozing.',
-    descEn: 'Listen to a spoken sentence (up to 3 plays) and type exactly what you hear.',
-    aiGeneratable: true,
-    icon: '🎧'
-  },
-  {
-    id: 'read_aloud',
-    name: 'Read Aloud',
-    skills: ['speaking'],
-    durationSec: 20,
-    sessionLength: 5,
-    descUz: 'Qo‘shimcha talaffuz mashqi: ekrandagi gapni 20 soniyada aniq o‘qib bering (rasmiy DET dan 2025-yilda olingan).',
-    descEn: 'Bonus pronunciation drill: read the displayed sentence aloud within 20 seconds (retired from official DET).',
-    aiGeneratable: true,
-    icon: '🗣️'
-  },
-  {
     id: 'interactive_reading',
     name: 'Interactive Reading',
+    category: 'reading',
     skills: ['reading'],
     durationSec: 480,
     sessionLength: 1,
@@ -74,8 +56,21 @@ export const QUESTION_TYPES = [
     icon: '📚'
   },
   {
+    id: 'listen_type',
+    name: 'Listen and Type',
+    category: 'listening',
+    skills: ['listening'],
+    durationSec: 60,
+    sessionLength: 6,
+    descUz: 'Gapni tinglang (ko‘pi bilan 3 marta) va eshitganingizni aniq yozing.',
+    descEn: 'Listen to a spoken sentence (up to 3 plays) and type exactly what you hear.',
+    aiGeneratable: true,
+    icon: '🎧'
+  },
+  {
     id: 'interactive_listening',
     name: 'Interactive Listening',
+    category: 'listening',
     skills: ['listening', 'writing'],
     durationSec: 240,
     sessionLength: 1,
@@ -87,6 +82,7 @@ export const QUESTION_TYPES = [
   {
     id: 'write_photo',
     name: 'Write About the Photo',
+    category: 'writing',
     skills: ['writing'],
     durationSec: 60,
     sessionLength: 3,
@@ -96,8 +92,21 @@ export const QUESTION_TYPES = [
     icon: '🖼️'
   },
   {
+    id: 'writing_sample',
+    name: 'Writing Sample',
+    category: 'writing',
+    skills: ['writing'],
+    durationSec: 300,
+    sessionLength: 1,
+    descUz: '5 daqiqalik akademik ochiq savolga tuzilgan insho yozing (universitetlarga yuboriladi).',
+    descEn: 'Write a 5-minute extended essay response on an open-ended prompt.',
+    aiGeneratable: true,
+    icon: '🎓'
+  },
+  {
     id: 'interactive_writing',
     name: 'Interactive Writing',
+    category: 'writing',
     skills: ['writing'],
     durationSec: 480,
     sessionLength: 1,
@@ -109,6 +118,7 @@ export const QUESTION_TYPES = [
   {
     id: 'speak_photo',
     name: 'Speak About the Photo',
+    category: 'speaking',
     skills: ['speaking'],
     prepSec: 20,
     durationSec: 90,
@@ -121,6 +131,7 @@ export const QUESTION_TYPES = [
   {
     id: 'read_then_speak',
     name: 'Read, Then Speak',
+    category: 'speaking',
     skills: ['speaking'],
     prepSec: 20,
     durationSec: 90,
@@ -131,19 +142,9 @@ export const QUESTION_TYPES = [
     icon: '🎙️'
   },
   {
-    id: 'writing_sample',
-    name: 'Writing Sample',
-    skills: ['writing'],
-    durationSec: 300,
-    sessionLength: 1,
-    descUz: '5 daqiqalik akademik ochiq savolga tuzilgan insho yozing (universitetlarga yuboriladi).',
-    descEn: 'Write a 5-minute extended essay response on an open-ended prompt.',
-    aiGeneratable: true,
-    icon: '🎓'
-  },
-  {
     id: 'speaking_sample',
     name: 'Speaking Sample',
+    category: 'speaking',
     skills: ['speaking'],
     prepSec: 30,
     durationSec: 180,
@@ -152,6 +153,19 @@ export const QUESTION_TYPES = [
     descEn: 'Prepare for 30s, then speak for 1–3 minutes on an open-ended prompt.',
     aiGeneratable: true,
     icon: '🎤'
+  },
+  {
+    id: 'interactive_speaking',
+    name: 'Interactive Speaking',
+    category: 'speaking',
+    skills: ['speaking'],
+    durationSec: 210,
+    turnDurationSec: 35,
+    sessionLength: 1,
+    descUz: '6 ta ketma-ket og‘zaki suhbat savoli: har bir savol 1 marta eshitiladi, javob berish uchun 35 soniya.',
+    descEn: '6-question live audio interview: hear each prompt once and respond within 35 seconds per turn.',
+    aiGeneratable: true,
+    icon: '🗣️'
   }
 ];
 
@@ -1632,6 +1646,99 @@ const SPEAKING_SAMPLE_BANK = [
   }
 ];
 
+const INTERACTIVE_SPEAKING_BANK = [
+  {
+    id: 'is1',
+    difficulty: 2,
+    interviewerName: 'Maya',
+    topicTitle: 'Study Habits & Digital Learning',
+    scenario: 'A 6-question live conversation shifting from your daily study environment to technology in education.',
+    turns: [
+      { audioText: 'Hi! To start, where do you usually prefer to study or get focused work done, and why does that place suit you?' },
+      { audioText: 'What small routine or habit helps you stay concentrated when you have an important deadline approaching?' },
+      { audioText: 'Do you find it easier to study alone or with a small group of classmates? Tell me about a recent example.' },
+      { audioText: 'Let’s switch slightly to technology. Which digital app or online tool has helped your learning the most this year?' },
+      { audioText: 'On the other hand, what kind of distractions do phones or laptops create during study sessions, and how do you handle them?' },
+      { audioText: 'Looking ahead, do you think online courses will ever completely replace traditional classrooms, or will students always need in-person classes?' }
+    ]
+  },
+  {
+    id: 'is2',
+    difficulty: 3,
+    interviewerName: 'Liam',
+    topicTitle: 'Neighborhood Spaces & Urban Transport',
+    scenario: 'A 6-question conversation starting with places in your city and moving into sustainable urban transportation.',
+    turns: [
+      { audioText: 'Hello! Can you describe a favorite park, café, or public space near where you live and what makes it welcoming?' },
+      { audioText: 'How has your neighborhood or city changed over the past few years in terms of buildings, shops, or green spaces?' },
+      { audioText: 'If a friend visited your city for just one afternoon, which local spot would you take them to first and why?' },
+      { audioText: 'Now let’s talk about getting around. How do people in your area mostly travel to school or work each day?' },
+      { audioText: 'What is one major challenge with traffic or public transportation in big cities, and how does it affect daily life?' },
+      { audioText: 'If city leaders could invest in either expanding subway lines or building safer cycling lanes, which should they prioritize first?' }
+    ]
+  },
+  {
+    id: 'is3',
+    difficulty: 3,
+    interviewerName: 'Sophia',
+    topicTitle: 'Personal Skills & Work-Life Balance',
+    scenario: 'A 6-question interview exploring hobbies you enjoy and how people maintain balance during busy schedules.',
+    turns: [
+      { audioText: 'Hi there! What is a hobby or practical skill you enjoy practicing in your free time, and how did you get started?' },
+      { audioText: 'What was the hardest part about improving at that activity when you were still a beginner?' },
+      { audioText: 'Would you recommend this hobby to someone with a very busy schedule? Why or why not?' },
+      { audioText: 'Speaking of busy schedules, how do you personally unwind and recharge after a demanding week of classes or work?' },
+      { audioText: 'Why do you think so many students and young professionals struggle to set healthy boundaries around rest today?' },
+      { audioText: 'Do you think schools and employers should actively encourage shorter workdays or longer breaks to boost creativity?' }
+    ]
+  },
+  {
+    id: 'is4',
+    difficulty: 4,
+    interviewerName: 'Daniel',
+    topicTitle: 'Reading Habits & Artificial Intelligence',
+    scenario: 'A 6-question conversation moving from how you stay informed to the impact of artificial intelligence on everyday work.',
+    turns: [
+      { audioText: 'Good to meet you! How do you usually stay up to date with current events or topics that interest you?' },
+      { audioText: 'When you read an article or watch a short video online, how do you decide whether the information is reliable?' },
+      { audioText: 'Can you share a book, podcast, or documentary that genuinely changed how you think about a topic?' },
+      { audioText: 'Let’s shift to a related trend: artificial intelligence. In what ways have you seen AI tools change how people write or research?' },
+      { audioText: 'What risks do you worry about if students rely too heavily on automated tools instead of practicing skills themselves?' },
+      { audioText: 'Which human abilities do you think will become even more valuable as AI continues to advance over the next decade?' }
+    ]
+  },
+  {
+    id: 'is5',
+    difficulty: 4,
+    interviewerName: 'Priya',
+    topicTitle: 'Cultural Exchange & Global Careers',
+    scenario: 'A 6-question interview moving from travel and language learning to working in international teams.',
+    turns: [
+      { audioText: 'Welcome! Tell me about a place—either in your own country or abroad—that you would love to visit and what draws you there.' },
+      { audioText: 'What is one cultural tradition or food from your home region that visitors are always surprised or delighted by?' },
+      { audioText: 'How has learning English opened up new perspectives, media, or friendships for you personally?' },
+      { audioText: 'Now thinking about future careers, what are the biggest advantages of studying or working in an international environment?' },
+      { audioText: 'What misunderstandings or challenges can happen when teammates come from very different cultural backgrounds?' },
+      { audioText: 'What advice would you give to someone preparing to move abroad for university or their first job?' }
+    ]
+  },
+  {
+    id: 'is6',
+    difficulty: 5,
+    interviewerName: 'Marcus',
+    topicTitle: 'Community Action & Future Cities',
+    scenario: 'A 6-question advanced conversation progressing from local community initiatives to long-term public policy choices.',
+    turns: [
+      { audioText: 'Hello! Can you tell me about a community event, volunteer project, or group effort you have participated in or admired?' },
+      { audioText: 'What motivates everyday citizens to give their free time to help neighbors or protect local spaces?' },
+      { audioText: 'Do you think young people today are more socially engaged than previous generations, or simply engaged in different ways?' },
+      { audioText: 'Looking at a broader scale, what environmental challenge in your country requires the most urgent attention right now?' },
+      { audioText: 'When environmental regulations make everyday products slightly more expensive, how can governments keep policies fair for families?' },
+      { audioText: 'Imagine your city fifty years from now: what single change in housing, energy, or education would make the biggest difference?' }
+    ]
+  }
+];
+
 export function getBankForType(type) {
   switch (type) {
     case 'read_select': return READ_SELECT_BANK.map((q) => ({ ...q, type }));
@@ -1655,6 +1762,7 @@ export function getBankForType(type) {
     case 'read_then_speak': return READ_THEN_SPEAK_BANK.map((q) => ({ ...q, type }));
     case 'writing_sample': return WRITING_SAMPLE_BANK.map((q) => ({ ...q, type }));
     case 'speaking_sample': return SPEAKING_SAMPLE_BANK.map((q) => ({ ...q, type }));
+    case 'interactive_speaking': return INTERACTIVE_SPEAKING_BANK.map((q) => ({ ...q, type }));
     default: return [];
   }
 }

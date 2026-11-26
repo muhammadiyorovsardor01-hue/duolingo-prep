@@ -347,7 +347,7 @@ function renderMockHome() {
 
       <div class="card" style="display:flex;flex-direction:column;justify-content:space-between;gap:18px;border-color:#FFD2A8;">
         <div>
-          <span class="tag tag-ai">~45–60 min · 42 Tasks · Official DET Frequency</span>
+          <span class="tag tag-ai">~45–60 min · 43 Tasks · All 13 Official Types</span>
           <h2 style="margin:12px 0 8px;font-size:21px;font-weight:800;">🎯 ${escapeHtml(t(lang, 'fullTitle'))}</h2>
           <p style="color:var(--ink-muted);margin:0 0 14px;">${escapeHtml(t(lang, 'fullDesc'))}</p>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
@@ -359,7 +359,8 @@ function renderMockHome() {
             <span class="tag">Interactive Listening (2)</span>
             <span class="tag">Write Photo (3)</span>
             <span class="tag">Interactive Writing</span>
-            <span class="tag">Speaking &amp; Samples</span>
+            <span class="tag">Interactive Speaking</span>
+            <span class="tag">Samples &amp; Photo</span>
           </div>
         </div>
         <button type="button" id="start-full-btn" class="btn btn-success btn-lg">${escapeHtml(t(lang, 'startFullMock'))}</button>
@@ -451,14 +452,46 @@ function getSkillIconSvg(typeId) {
       </svg>
     `;
   }
-  if (typeId === 'write_photo' || typeId === 'speak_photo') {
-    const badgeColor = typeId === 'speak_photo' ? '#FF9600' : '#1CB0F6';
+  if (typeId === 'write_photo') {
     return `
       <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
         <rect x="7" y="11" width="36" height="28" rx="7" fill="#DDF4FF" stroke="#E5E5E5" stroke-width="2.4"/>
         <circle cx="17" cy="20" r="3.5" fill="#FFC800"/>
         <path d="M10 35L19 25L27 32L32 27L40 35H10Z" fill="#58CC02"/>
-        <circle cx="38" cy="36" r="7" fill="${badgeColor}"/>
+        <circle cx="38" cy="36" r="7" fill="#1CB0F6"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'speak_photo') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <rect x="7" y="10" width="34" height="28" rx="7" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <circle cx="17" cy="19" r="3" fill="#84D8FF"/>
+        <path d="M10 34L19 25L26 31L30 27L38 34H10Z" fill="#84D8FF"/>
+        <rect x="29" y="25" width="16" height="18" rx="5" fill="#1CB0F6"/>
+        <rect x="35" y="29" width="4" height="7" rx="2" fill="#FFFFFF"/>
+        <path d="M33 34.5C33 36.7 34.8 38.5 37 38.5C39.2 38.5 41 36.7 41 34.5" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'read_then_speak') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <path d="M9 15C9 13.5 10.2 12.5 11.7 12.5H22C24.2 12.5 26 14.3 26 16.5V35.5C26 34 24.2 33 22 33H11.7C10.2 33 9 31.8 9 30.3V15Z" fill="#84D8FF" stroke="#1CB0F6" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M43 15C43 13.5 41.8 12.5 40.3 12.5H30C27.8 12.5 26 14.3 26 16.5V35.5C26 34 27.8 33 30 33H40.3C41.8 33 43 31.8 43 30.3V15Z" fill="#DDF4FF" stroke="#1CB0F6" stroke-width="2" stroke-linejoin="round"/>
+        <rect x="29" y="26" width="16" height="17" rx="5" fill="#1CB0F6"/>
+        <rect x="35" y="29.5" width="4" height="6.5" rx="2" fill="#FFFFFF"/>
+        <path d="M33 34.5C33 36.7 34.8 38.5 37 38.5C39.2 38.5 41 36.7 41 34.5" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+  if (typeId === 'interactive_speaking') {
+    return `
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <circle cx="17.5" cy="19" r="6" fill="#1CB0F6"/>
+        <path d="M8 38C8 32.5 12.2 28.5 17.5 28.5C22.8 28.5 27 32.5 27 38H8Z" fill="#1CB0F6"/>
+        <rect x="25" y="13" width="20" height="15" rx="7.5" fill="#FFFFFF" stroke="#E5E5E5" stroke-width="2.4"/>
+        <rect x="31" y="19" width="8" height="3.2" rx="1.6" fill="#1CB0F6"/>
       </svg>
     `;
   }
@@ -676,7 +709,7 @@ function renderPracticeHub() {
   ];
 
   const filtered = QUESTION_TYPES.filter((qt) =>
-    practiceFilter === 'all' ? true : qt.skills.includes(practiceFilter)
+    practiceFilter === 'all' ? true : (qt.category || qt.skills[0]) === practiceFilter
   );
 
   mainEl.innerHTML = `
@@ -713,11 +746,13 @@ function renderPracticeHub() {
         ${filtered.map((qt) => {
           const stats = state.practiceStats[qt.id];
           const timeLabel = formatShortTimer(qt.durationSec || 60);
-          const unitLabel = qt.id === 'interactive_reading'
+          const unitLabel = (qt.id === 'interactive_reading' || qt.id === 'interactive_speaking')
             ? '6 questions'
-            : qt.id === 'read_select'
-              ? `${qt.sessionLength || 15} words`
-              : `${qt.sessionLength || 1} ${(qt.sessionLength || 1) === 1 ? 'task' : 'items'}`;
+            : qt.id === 'interactive_listening'
+              ? '4 turns + summary'
+              : qt.id === 'read_select'
+                ? `${qt.sessionLength || 15} words`
+                : `${qt.sessionLength || 1} ${(qt.sessionLength || 1) === 1 ? 'task' : 'items'}`;
           return `
             <div class="det-skill-card" role="button" tabindex="0" data-run-bank="${qt.id}">
               <div class="det-skill-icon">${getSkillIconSvg(qt.id)}</div>
