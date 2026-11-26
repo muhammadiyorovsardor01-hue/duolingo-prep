@@ -1,26 +1,41 @@
 let sharedAudioCtx = null;
 let sharedMasterOut = null;
+let sharedNoiseBuf = null;
 
 function ensureMasterBus(ctx) {
   if (sharedMasterOut && sharedMasterOut.context === ctx) {
     return sharedMasterOut;
   }
   const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.setValueAtTime(-12, ctx.currentTime);
-  limiter.knee.setValueAtTime(16, ctx.currentTime);
-  limiter.ratio.setValueAtTime(6, ctx.currentTime);
+  limiter.threshold.setValueAtTime(-10, ctx.currentTime);
+  limiter.knee.setValueAtTime(12, ctx.currentTime);
+  limiter.ratio.setValueAtTime(4, ctx.currentTime);
   limiter.attack.setValueAtTime(0.002, ctx.currentTime);
-  limiter.release.setValueAtTime(0.12, ctx.currentTime);
+  limiter.release.setValueAtTime(0.10, ctx.currentTime);
 
   const warmth = ctx.createBiquadFilter();
   warmth.type = 'lowpass';
-  warmth.frequency.setValueAtTime(5200, ctx.currentTime);
+  warmth.frequency.setValueAtTime(9500, ctx.currentTime);
   warmth.Q.setValueAtTime(0.5, ctx.currentTime);
 
   warmth.connect(limiter);
   limiter.connect(ctx.destination);
   sharedMasterOut = warmth;
   return sharedMasterOut;
+}
+
+function getMalletNoiseBuffer(ctx) {
+  if (sharedNoiseBuf && sharedNoiseBuf.sampleRate === ctx.sampleRate) {
+    return sharedNoiseBuf;
+  }
+  const length = Math.max(1, Math.round(ctx.sampleRate * 0.02));
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  sharedNoiseBuf = buffer;
+  return sharedNoiseBuf;
 }
 
 function withAudioContext(fn) {
@@ -32,6 +47,7 @@ function withAudioContext(fn) {
     try {
       sharedAudioCtx = new AudioCtx();
       sharedMasterOut = null;
+      sharedNoiseBuf = null;
     } catch {
       return;
     }
@@ -52,206 +68,131 @@ function withAudioContext(fn) {
   }
 }
 
-/** Synthesizes Duolingo's glassy marimba/celesta chime note with warm sub-octave body. */
-function playDuoChimeNote(ctx, dest, startTime, freq, duration, volume = 0.22, opts = {}) {
-  const { bodyOctave = true, fifthHz = 0 } = opts;
-  const peak = Math.max(0.005, volume);
+/** Synthesizes the crisp physical mallet-on-bar transient spike. */
+function playMalletClick(ctx, dest, startTime, centerHz, volume, duration = 0.014) {
+  const src = ctx.createBufferSource();
+  src.buffer = getMalletNoiseBuffer(ctx);
 
-  const fundOsc = ctx.createOscillator();
-  const fundGain = ctx.createGain();
-  fundOsc.type = 'sine';
-  fundOsc.frequency.setValueAtTime(freq, startTime);
-  fundGain.gain.setValueAtTime(0.0001, startTime);
-  fundGain.gain.linearRampToValueAtTime(peak, startTime + 0.003);
-  fundGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-  fundOsc.connect(fundGain);
-  fundGain.connect(dest);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(centerHz, startTime);
+  bp.Q.setValueAtTime(2.2, startTime);
 
-  // Bell/celesta 2x mallet transient
-  const overOsc = ctx.createOscillator();
-  const overGain = ctx.createGain();
-  overOsc.type = 'triangle';
-  overOsc.frequency.setValueAtTime(freq * 2, startTime);
-  overGain.gain.setValueAtTime(0.0001, startTime);
-  overGain.gain.linearRampToValueAtTime(peak * 0.22, startTime + 0.002);
-  overGain.gain.exponentialRampToValueAtTime(0.0001, startTime + Math.min(duration * 0.45, 0.075));
-  overOsc.connect(overGain);
-  overGain.connect(dest);
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.linearRampToValueAtTime(Math.max(0.005, volume), startTime + 0.001);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-  // Crisp upper sparkle 3x
-  const sparkleOsc = ctx.createOscillator();
-  const sparkleGain = ctx.createGain();
-  sparkleOsc.type = 'sine';
-  sparkleOsc.frequency.setValueAtTime(freq * 3, startTime);
-  sparkleGain.gain.setValueAtTime(0.0001, startTime);
-  sparkleGain.gain.linearRampToValueAtTime(peak * 0.07, startTime + 0.002);
-  sparkleGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.04);
-  sparkleOsc.connect(sparkleGain);
-  sparkleGain.connect(dest);
+  src.connect(bp);
+  bp.connect(gain);
+  gain.connect(dest);
 
-  const stopAt = startTime + duration + 0.03;
-  fundOsc.start(startTime);
-  overOsc.start(startTime);
-  sparkleOsc.start(startTime);
-  fundOsc.stop(stopAt);
-  overOsc.stop(startTime + 0.09);
-  sparkleOsc.stop(startTime + 0.055);
-
-  if (bodyOctave) {
-    const bodyOsc = ctx.createOscillator();
-    const bodyGain = ctx.createGain();
-    const bodyDur = Math.min(duration * 0.75, 0.22);
-    bodyOsc.type = 'sine';
-    bodyOsc.frequency.setValueAtTime(freq * 0.5, startTime);
-    bodyGain.gain.setValueAtTime(0.0001, startTime);
-    bodyGain.gain.linearRampToValueAtTime(peak * 0.28, startTime + 0.004);
-    bodyGain.gain.exponentialRampToValueAtTime(0.0001, startTime + bodyDur);
-    bodyOsc.connect(bodyGain);
-    bodyGain.connect(dest);
-    bodyOsc.start(startTime);
-    bodyOsc.stop(startTime + bodyDur + 0.03);
-  }
-
-  if (fifthHz > 0) {
-    const fifthOsc = ctx.createOscillator();
-    const fifthGain = ctx.createGain();
-    fifthOsc.type = 'sine';
-    fifthOsc.frequency.setValueAtTime(fifthHz, startTime);
-    fifthGain.gain.setValueAtTime(0.0001, startTime);
-    fifthGain.gain.linearRampToValueAtTime(peak * 0.14, startTime + 0.008);
-    fifthGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.85);
-    fifthOsc.connect(fifthGain);
-    fifthGain.connect(dest);
-    fifthOsc.start(startTime);
-    fifthOsc.stop(stopAt);
-  }
+  src.start(startTime);
+  src.stop(startTime + duration + 0.006);
 }
 
-/** Synthesizes Duolingo's muted-brass/rubbery descending wrong note with subtle tritone bite. */
-function playDuoWrongNote(ctx, dest, startTime, startFreq, endFreq, duration, volume = 0.22, opts = {}) {
-  const { tritoneHz = 0, filterStart = 1550, filterEnd = 420 } = opts;
-  const peak = Math.max(0.005, volume);
+/** Schedules a clean single partial oscillator with percussive attack and exponential decay. */
+function playPartial(ctx, dest, startTime, freq, duration, gainPeak, type = 'sine', attack = 0.0025) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, startTime);
 
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.Q.setValueAtTime(1.4, startTime);
-  filter.frequency.setValueAtTime(filterStart, startTime);
-  filter.frequency.exponentialRampToValueAtTime(Math.max(120, filterEnd), startTime + duration);
-  filter.connect(dest);
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.linearRampToValueAtTime(Math.max(0.002, gainPeak), startTime + attack);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
 
-  const sawOsc = ctx.createOscillator();
-  const sawGain = ctx.createGain();
-  sawOsc.type = 'sawtooth';
-  sawOsc.frequency.setValueAtTime(startFreq, startTime);
-  if (endFreq && endFreq !== startFreq) {
-    sawOsc.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), startTime + duration);
-  }
-  sawGain.gain.setValueAtTime(0.0001, startTime);
-  sawGain.gain.linearRampToValueAtTime(peak * 0.34, startTime + 0.005);
-  sawGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-  sawOsc.connect(sawGain);
-  sawGain.connect(filter);
-
-  const triOsc = ctx.createOscillator();
-  const triGain = ctx.createGain();
-  triOsc.type = 'triangle';
-  triOsc.frequency.setValueAtTime(startFreq, startTime);
-  if (endFreq && endFreq !== startFreq) {
-    triOsc.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), startTime + duration);
-  }
-  triGain.gain.setValueAtTime(0.0001, startTime);
-  triGain.gain.linearRampToValueAtTime(peak * 0.56, startTime + 0.004);
-  triGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-  triOsc.connect(triGain);
-  triGain.connect(filter);
-
-  const subOsc = ctx.createOscillator();
-  const subGain = ctx.createGain();
-  subOsc.type = 'sine';
-  subOsc.frequency.setValueAtTime(startFreq * 0.5, startTime);
-  if (endFreq && endFreq !== startFreq) {
-    subOsc.frequency.exponentialRampToValueAtTime(Math.max(30, endFreq * 0.5), startTime + duration);
-  }
-  subGain.gain.setValueAtTime(0.0001, startTime);
-  subGain.gain.linearRampToValueAtTime(peak * 0.28, startTime + 0.005);
-  subGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration * 0.9);
-  subOsc.connect(subGain);
-  subGain.connect(filter);
-
-  const stopAt = startTime + duration + 0.03;
-  sawOsc.start(startTime);
-  triOsc.start(startTime);
-  subOsc.start(startTime);
-  sawOsc.stop(stopAt);
-  triOsc.stop(stopAt);
-  subOsc.stop(stopAt);
-
-  if (tritoneHz > 0) {
-    const tritoneOsc = ctx.createOscillator();
-    const tritoneGain = ctx.createGain();
-    const triDur = Math.min(duration * 0.72, 0.16);
-    tritoneOsc.type = 'triangle';
-    tritoneOsc.frequency.setValueAtTime(tritoneHz, startTime);
-    tritoneGain.gain.setValueAtTime(0.0001, startTime);
-    tritoneGain.gain.linearRampToValueAtTime(peak * 0.15, startTime + 0.004);
-    tritoneGain.gain.exponentialRampToValueAtTime(0.0001, startTime + triDur);
-    tritoneOsc.connect(tritoneGain);
-    tritoneGain.connect(filter);
-    tritoneOsc.start(startTime);
-    tritoneOsc.stop(startTime + triDur + 0.02);
-  }
+  osc.connect(gain);
+  gain.connect(dest);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.025);
 }
 
 export function playCorrectSound(enabled = true) {
   if (!enabled) return;
   withAudioContext((ctx, dest, now) => {
-    // Authentic Duolingo ascending major 3rd in F# major: F#5 -> A#5 ("ba-DING!")
-    playDuoChimeNote(ctx, dest, now, 739.99, 0.13, 0.21, { bodyOctave: true });
-    playDuoChimeNote(ctx, dest, now + 0.092, 932.33, 0.42, 0.24, {
-      bodyOctave: true,
-      fifthHz: 1108.73 // Soft C#6 shimmer
-    });
+    // Exact DET Read & Select "Great job!" bell chime (FFT-measured from official DET):
+    // Note 1 (t=0ms): F#6 (1484 Hz) + 2.075x stretched partial (3080 Hz) + F#5/F#4 body
+    const t1 = now;
+    playMalletClick(ctx, dest, t1, 3600, 0.14, 0.014);
+    playPartial(ctx, dest, t1, 1484.0, 0.46, 0.24, 'sine', 0.0025);
+    playPartial(ctx, dest, t1, 1487.5, 0.24, 0.04, 'sine', 0.003);
+    playPartial(ctx, dest, t1, 740.0, 0.48, 0.036, 'sine', 0.004);
+    playPartial(ctx, dest, t1, 370.0, 0.46, 0.022, 'sine', 0.005);
+    playPartial(ctx, dest, t1, 3080.0, 0.095, 0.042, 'sine', 0.0018);
+
+    // Note 2 (t=+125ms): A#6 (1871 Hz) + F#7 bloom (2978 Hz) + 2.073x stretched partial (3878 Hz)
+    const t2 = now + 0.125;
+    playMalletClick(ctx, dest, t2, 4200, 0.16, 0.014);
+    playPartial(ctx, dest, t2, 1871.0, 0.42, 0.27, 'sine', 0.0025);
+    playPartial(ctx, dest, t2, 1874.5, 0.22, 0.045, 'sine', 0.003);
+    playPartial(ctx, dest, t2, 935.0, 0.44, 0.052, 'sine', 0.004);
+    playPartial(ctx, dest, t2, 2978.0, 0.36, 0.048, 'sine', 0.0025);
+    playPartial(ctx, dest, t2, 3878.0, 0.08, 0.044, 'sine', 0.0018);
   });
 }
 
 export function playPartialSound(enabled = true) {
   if (!enabled) return;
   withAudioContext((ctx, dest, now) => {
-    // Soft F#5 -> G#5 major-second chime
-    playDuoChimeNote(ctx, dest, now, 739.99, 0.12, 0.18, { bodyOctave: true });
-    playDuoChimeNote(ctx, dest, now + 0.095, 830.61, 0.32, 0.19, { bodyOctave: true });
+    // Soft crystalline bell interval in F# (F#6 -> G#6)
+    const t1 = now;
+    playMalletClick(ctx, dest, t1, 3500, 0.11, 0.013);
+    playPartial(ctx, dest, t1, 1484.0, 0.34, 0.20, 'sine', 0.0025);
+    playPartial(ctx, dest, t1, 740.0, 0.36, 0.032, 'sine', 0.004);
+    playPartial(ctx, dest, t1, 3080.0, 0.085, 0.034, 'sine', 0.0018);
+
+    const t2 = now + 0.125;
+    playMalletClick(ctx, dest, t2, 3800, 0.12, 0.013);
+    playPartial(ctx, dest, t2, 1661.2, 0.38, 0.22, 'sine', 0.0025);
+    playPartial(ctx, dest, t2, 830.6, 0.38, 0.04, 'sine', 0.004);
+    playPartial(ctx, dest, t2, 3440.0, 0.075, 0.032, 'sine', 0.0018);
   });
 }
 
 export function playWrongSound(enabled = true) {
   if (!enabled) return;
   withAudioContext((ctx, dest, now) => {
-    // Authentic Duolingo descending muted-brass/synth drop ("bwuh-bwomp")
-    playDuoWrongNote(ctx, dest, now, 329.63, 322.0, 0.115, 0.22, {
-      tritoneHz: 466.16,
-      filterStart: 1600,
-      filterEnd: 520
-    });
-    playDuoWrongNote(ctx, dest, now + 0.112, 261.63, 233.08, 0.27, 0.24, {
-      tritoneHz: 369.99,
-      filterStart: 1250,
-      filterEnd: 340
-    });
+    // Exact DET Read & Select "Incorrect" tritone marimba/bell drop (FFT-measured from official DET):
+    // Note 1 (t=0ms, softer): F#5 (742 Hz) + 2.06x woody mode (1528 Hz), ringing into Note 2
+    const t1 = now;
+    playMalletClick(ctx, dest, t1, 3200, 0.09, 0.013);
+    playPartial(ctx, dest, t1, 742.0, 0.36, 0.13, 'sine', 0.0025);
+    playPartial(ctx, dest, t1, 1528.0, 0.12, 0.105, 'sine', 0.002);
+    playPartial(ctx, dest, t1, 370.0, 0.38, 0.054, 'triangle', 0.004);
+    playPartial(ctx, dest, t1, 4253.0, 0.055, 0.052, 'sine', 0.0015);
+
+    // Note 2 (t=+125ms, heavier): C5 (523.5 Hz) + 2.05x mode (1074 Hz) + crisp knock transients
+    const t2 = now + 0.125;
+    playMalletClick(ctx, dest, t2, 2800, 0.15, 0.015);
+    playPartial(ctx, dest, t2, 523.5, 0.38, 0.27, 'sine', 0.0025);
+    playPartial(ctx, dest, t2, 523.5, 0.18, 0.06, 'triangle', 0.003);
+    playPartial(ctx, dest, t2, 1074.0, 0.30, 0.085, 'sine', 0.0025);
+    playPartial(ctx, dest, t2, 261.75, 0.24, 0.045, 'sine', 0.004);
+    playPartial(ctx, dest, t2, 2972.0, 0.08, 0.042, 'sine', 0.0018);
+    playPartial(ctx, dest, t2, 4436.0, 0.055, 0.048, 'sine', 0.0015);
   });
 }
 
 export function playCompleteSound(enabled = true) {
   if (!enabled) return;
   withAudioContext((ctx, dest, now) => {
-    // Celebratory F# major arpeggio: F#5 -> A#5 -> C#6 -> F#6 + chord glow
-    playDuoChimeNote(ctx, dest, now, 739.99, 0.15, 0.19, { bodyOctave: true });
-    playDuoChimeNote(ctx, dest, now + 0.085, 932.33, 0.15, 0.19, { bodyOctave: true });
-    playDuoChimeNote(ctx, dest, now + 0.17, 1108.73, 0.18, 0.20, { bodyOctave: true });
-    playDuoChimeNote(ctx, dest, now + 0.255, 1479.98, 0.52, 0.22, {
-      bodyOctave: true,
-      fifthHz: 1108.73
-    });
-    playDuoChimeNote(ctx, dest, now + 0.255, 932.33, 0.44, 0.09, { bodyOctave: false });
+    // Celebratory F# major bell arpeggio in matching crystalline 2.07x instrument
+    const notes = [
+      { dt: 0.0, hz: 740.0, dur: 0.24, vol: 0.18, mallet: 2800 },
+      { dt: 0.095, hz: 932.3, dur: 0.24, vol: 0.19, mallet: 3200 },
+      { dt: 0.19, hz: 1108.7, dur: 0.26, vol: 0.20, mallet: 3600 },
+      { dt: 0.285, hz: 1484.0, dur: 0.50, vol: 0.25, mallet: 4000 }
+    ];
+    for (const n of notes) {
+      const t = now + n.dt;
+      playMalletClick(ctx, dest, t, n.mallet, n.vol * 0.55, 0.013);
+      playPartial(ctx, dest, t, n.hz, n.dur, n.vol, 'sine', 0.0025);
+      playPartial(ctx, dest, t, n.hz * 0.5, n.dur, n.vol * 0.18, 'sine', 0.004);
+      playPartial(ctx, dest, t, n.hz * 2.073, 0.085, n.vol * 0.18, 'sine', 0.0018);
+    }
+    // Chord glow on resolution
+    playPartial(ctx, dest, now + 0.285, 1871.0, 0.44, 0.10, 'sine', 0.004);
   });
 }
 
