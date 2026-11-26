@@ -37,12 +37,24 @@ import {
   escapeHtml
 } from './renderers.js';
 import { launchMockExamFlow, renderScoreReport } from './exam-engine.js';
+import {
+  getAuthSession,
+  checkCloudStatus,
+  registerAccount,
+  loginAccount,
+  syncNow,
+  logoutAccount,
+  initAccountAutoSync
+} from './account.js';
 
 const mainEl = document.getElementById('main-content');
 const topNavEl = document.getElementById('top-nav');
 const aiPillEl = document.getElementById('ai-status-pill');
 const aiStatusTextEl = document.getElementById('ai-status-text');
 const navMistakesBadge = document.getElementById('nav-mistakes-badge');
+const profileBtnEl = document.getElementById('profile-btn');
+const profileAvatarInnerEl = document.getElementById('profile-avatar-inner');
+const profileSyncDotEl = document.getElementById('profile-sync-dot');
 const toastRoot = document.getElementById('toast-root');
 
 let currentRoute = 'dashboard';
@@ -86,6 +98,24 @@ function syncChrome() {
     navMistakesBadge.classList.remove('hidden');
   } else {
     navMistakesBadge.classList.add('hidden');
+  }
+
+  const authSess = getAuthSession();
+  if (profileBtnEl && profileAvatarInnerEl && profileSyncDotEl) {
+    if (authSess?.username) {
+      const initials = authSess.username.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'U';
+      profileBtnEl.classList.add('signed-in');
+      profileBtnEl.title = `@${authSess.username} (${authSess.mode === 'cloud' ? 'Cloud Sync' : 'Local'})`;
+      profileAvatarInnerEl.textContent = initials;
+      profileSyncDotEl.classList.remove('hidden', 'local');
+      if (authSess.mode !== 'cloud') profileSyncDotEl.classList.add('local');
+    } else {
+      profileBtnEl.classList.remove('signed-in');
+      profileBtnEl.title = lang === 'uz' ? 'Profilga kirish / Saqlash' : 'Sign In / Profile Sync';
+      profileAvatarInnerEl.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8.5" r="4" stroke="currentColor" stroke-width="2.1"/><path d="M5 19.5C5 16.2 8.1 14 12 14C15.9 14 19 16.2 19 19.5" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>`;
+      profileSyncDotEl.classList.add('hidden');
+      profileSyncDotEl.classList.remove('local');
+    }
   }
 }
 
@@ -854,6 +884,8 @@ function startReadSelectPractice(useAi) {
 
   let currentIndex = 0;
   let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let correctStreak = 0;
+  let wrongStreak = 0;
   let soundOn = loadState().settings.soundEnabled !== false;
   let aborted = false;
   let loaderTimer = null;
@@ -917,12 +949,16 @@ function startReadSelectPractice(useAi) {
     playCompleteSound(soundOn);
     const missedItems = sessionResults.filter((r) => !r.result.correct);
 
+    const avgDiffLabel = sessionResults.length
+      ? (sessionResults.reduce((s, r) => s + Number(r.item.difficulty || 3), 0) / sessionResults.length).toFixed(1)
+      : '3.0';
+
     mainEl.innerHTML = `
       <div class="det-rs-complete">
         <div class="det-rs-complete-body">
           ${getCompleteCardsSvg()}
           <h2 class="det-rs-complete-title">Practice complete! Keep it up!</h2>
-          <p class="det-rs-complete-sub">${correctCount}/${sessionResults.length} correct · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
+          <p class="det-rs-complete-sub">${correctCount}/${sessionResults.length} (${avgPct}%) · Level ${avgDiffLabel} · DET Band ${sessionDetScore} (${rangeLow}–${rangeHigh})</p>
           ${missedItems.length > 0 ? `
             <button type="button" id="dp-rs-missed-btn" class="det-rs-missed-toggle">
               Review ${missedItems.length} missed ${missedItems.length === 1 ? 'word' : 'words'}
@@ -1069,7 +1105,21 @@ function startReadSelectPractice(useAi) {
         }
 
         if (practiceDifficulty === 'adaptive') {
-          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+          if (result.correct) {
+            correctStreak += 1;
+            wrongStreak = 0;
+            if (correctStreak >= 2) {
+              currentDiff = Math.min(5, currentDiff + 1);
+              correctStreak = 0;
+            }
+          } else {
+            wrongStreak += 1;
+            correctStreak = 0;
+            if (wrongStreak >= 2) {
+              currentDiff = Math.max(1, currentDiff - 1);
+              wrongStreak = 0;
+            }
+          }
         }
 
         applyObjectiveReviewVisuals(mountEl, item, result);
@@ -1205,6 +1255,8 @@ function startFillBlanksPractice(useAi) {
 
   let currentIndex = 0;
   let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let correctStreak = 0;
+  let wrongStreak = 0;
   let soundOn = loadState().settings.soundEnabled !== false;
   let aborted = false;
   let loaderTimer = null;
@@ -1466,7 +1518,21 @@ function startFillBlanksPractice(useAi) {
         }
 
         if (practiceDifficulty === 'adaptive') {
-          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+          if (result.correct) {
+            correctStreak += 1;
+            wrongStreak = 0;
+            if (correctStreak >= 2) {
+              currentDiff = Math.min(5, currentDiff + 1);
+              correctStreak = 0;
+            }
+          } else {
+            wrongStreak += 1;
+            correctStreak = 0;
+            if (wrongStreak >= 2) {
+              currentDiff = Math.max(1, currentDiff - 1);
+              wrongStreak = 0;
+            }
+          }
         }
 
         applyObjectiveReviewVisuals(mountEl, item, result);
@@ -1612,6 +1678,8 @@ function startReadCompletePractice(useAi) {
 
   let currentIndex = 0;
   let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let correctStreak = 0;
+  let wrongStreak = 0;
   let soundOn = loadState().settings.soundEnabled !== false;
   let aborted = false;
   let loaderTimer = null;
@@ -1888,7 +1956,21 @@ function startReadCompletePractice(useAi) {
         }
 
         if (practiceDifficulty === 'adaptive') {
-          currentDiff = nextAdaptiveDifficulty(currentDiff, result.pctScore);
+          if (result.correct) {
+            correctStreak += 1;
+            wrongStreak = 0;
+            if (correctStreak >= 2) {
+              currentDiff = Math.min(5, currentDiff + 1);
+              correctStreak = 0;
+            }
+          } else {
+            wrongStreak += 1;
+            correctStreak = 0;
+            if (wrongStreak >= 2) {
+              currentDiff = Math.max(1, currentDiff - 1);
+              wrongStreak = 0;
+            }
+          }
         }
 
         applyObjectiveReviewVisuals(mountEl, item, result);
@@ -2988,6 +3070,8 @@ function startPracticeSession(typeId, useAi) {
 
   let currentIndex = 0;
   let currentDiff = practiceDifficulty === 'adaptive' ? 3 : Number(practiceDifficulty);
+  let correctStreak = 0;
+  let wrongStreak = 0;
   let soundOn = loadState().settings.soundEnabled !== false;
   let aborted = false;
   let itemTimerId = null;
@@ -4114,10 +4198,224 @@ function renderSettingsView() {
   });
 }
 
+// Circular Profile Modal (Username + Password + Cloud Sync)
+function openProfileModal() {
+  const existing = document.getElementById('profile-modal-root');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'profile-modal-root';
+  overlay.className = 'profile-modal-backdrop';
+  document.body.appendChild(overlay);
+
+  let modeTab = 'login'; // 'login' | 'register'
+  let cloudStatus = { cloudConfigured: true, mode: 'checking' };
+  let busy = false;
+  let errorMsg = '';
+
+  const closeModal = () => {
+    document.removeEventListener('keydown', onKeyClose);
+    overlay.remove();
+  };
+
+  const onKeyClose = (e) => {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', onKeyClose);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal();
+  });
+
+  const formatAuthError = (code, fallback, lang) => {
+    const uz = lang === 'uz';
+    if (code === 'INVALID_USERNAME') return uz ? 'Username kamida 3 ta belgi (a-z, 0-9, _, .) bo‘lishi kerak.' : 'Username must be 3-24 chars (a-z, 0-9, _, .).';
+    if (code === 'INVALID_PASSWORD') return uz ? 'Parol kamida 6 ta belgidan iborat bo‘lishi kerak.' : 'Password must be at least 6 characters.';
+    if (code === 'USERNAME_TAKEN') return uz ? 'Bu username band — "Kirish" orqali kiring yoki boshqa nom tanlang.' : 'Username already exists. Sign in or pick another.';
+    if (code === 'INVALID_CREDENTIALS') return uz ? 'Username yoki parol noto‘g‘ri.' : 'Incorrect username or password.';
+    return fallback || (uz ? 'Xatolik yuz berdi.' : 'Operation failed.');
+  };
+
+  const renderModal = () => {
+    const state = loadState();
+    const lang = state.settings.uiLang || 'uz';
+    const uz = lang === 'uz';
+    const sess = getAuthSession();
+    const totalPractices = Object.values(state.practiceStats || {}).reduce((s, p) => s + (p.attempts || 0), 0);
+    const activeMistakes = (state.mistakes || []).filter((m) => !m.mastered).length;
+    const streak = getStreak(state);
+
+    const cloudGuideHtml = !cloudStatus.cloudConfigured ? `
+      <div class="banner banner-info" style="font-size:12.5px;margin-bottom:14px;display:block;">
+        <div style="font-weight:800;margin-bottom:4px;">☁️ ${uz ? 'Qurilmalararo Cloud Sync uchun (Vercel Free Storage):' : 'Enable Cross-Device Cloud Sync (Vercel Free):'}</div>
+        <div>${uz
+          ? 'Telefon va noutbukda bir xil akkaunt ochilishi uchun Vercel → <strong>Storage</strong> → <strong>Create Upstash Redis (Free)</strong> → <code>duolingo-prep</code> loyihasiga ulang va <strong>Redeploy</strong> qiling. Ungacha profil shu qurilmada ishlaydi.'
+          : 'To sync across phone & laptop, link free <strong>Upstash Redis</strong> in Vercel → <strong>Storage</strong> to <code>duolingo-prep</code> and redeploy. Until then, profiles save on this device.'}</div>
+      </div>
+    ` : '';
+
+    if (sess?.username) {
+      const initials = sess.username.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || 'U';
+      const isCloud = sess.mode === 'cloud';
+      const lastSync = sess.lastSyncedAt ? new Date(sess.lastSyncedAt).toLocaleString() : '—';
+      overlay.innerHTML = `
+        <div class="profile-modal-card" role="dialog" aria-modal="true" aria-label="User Profile">
+          <div class="profile-modal-head">
+            <h3 style="margin:0;font-size:18px;font-weight:800;">${uz ? 'Mening Profilim' : 'My Profile'}</h3>
+            <button type="button" class="det-rs-icon-btn" id="prof-close" aria-label="Close">✕</button>
+          </div>
+          <div class="profile-user-hero">
+            <div class="profile-avatar-lg">${escapeHtml(initials)}</div>
+            <div>
+              <div style="font-size:18px;font-weight:800;">@${escapeHtml(sess.username)}</div>
+              <div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                <span class="tag ${isCloud ? 'tag-speaking' : 'tag-warn'}">${isCloud ? '☁️ Cloud Sync Faol' : '📱 Lokal rejim'}</span>
+                <span style="font-size:11.5px;color:var(--ink-muted);">${uz ? 'Oxirgi saqlash:' : 'Synced:'} ${escapeHtml(lastSync)}</span>
+              </div>
+            </div>
+          </div>
+
+          ${cloudGuideHtml}
+
+          <div class="kpi-grid" style="margin-bottom:16px;">
+            <div class="kpi-box"><div class="kpi-label">${uz ? 'Mock imtihonlar' : 'Mock Exams'}</div><div class="kpi-val">${(state.examHistory || []).length}</div></div>
+            <div class="kpi-box"><div class="kpi-label">${uz ? 'Mashqlar' : 'Practices'}</div><div class="kpi-val">${totalPractices}</div></div>
+            <div class="kpi-box"><div class="kpi-label">${uz ? 'Kunlik seriya' : 'Day Streak'}</div><div class="kpi-val">🔥 ${streak}</div></div>
+            <div class="kpi-box"><div class="kpi-label">${uz ? 'Xatolar' : 'Mistakes'}</div><div class="kpi-val">${activeMistakes}</div></div>
+          </div>
+
+          ${errorMsg ? `<div class="banner banner-danger" style="font-size:13px;margin-bottom:12px;">${escapeHtml(errorMsg)}</div>` : ''}
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" id="prof-sync-now" class="btn btn-primary" style="flex:1;" ${busy ? 'disabled' : ''}>
+              ${busy ? '⏳ ...' : (uz ? '🔄 Hozir sinxronlash' : '🔄 Sync Now')}
+            </button>
+            <button type="button" id="prof-logout" class="btn btn-danger" ${busy ? 'disabled' : ''}>
+              ${uz ? 'Chiqish' : 'Log Out'}
+            </button>
+          </div>
+        </div>
+      `;
+
+      overlay.querySelector('#prof-close').addEventListener('click', closeModal);
+      overlay.querySelector('#prof-sync-now').addEventListener('click', async () => {
+        busy = true; errorMsg = ''; renderModal();
+        const res = await syncNow({ pushAfterMerge: true });
+        busy = false;
+        if (res.ok) {
+          syncChrome();
+          if (currentRoute === 'dashboard') renderDashboard();
+          else if (currentRoute === 'mistakes') renderMistakesView();
+          else if (currentRoute === 'practice') renderPracticeHub();
+          showToast(uz ? '✓ Barcha natijalar sinxronlandi!' : '✓ Progress synced!', 'success');
+        } else {
+          errorMsg = formatAuthError(res.code, res.error, lang);
+        }
+        renderModal();
+      });
+      overlay.querySelector('#prof-logout').addEventListener('click', async () => {
+        await logoutAccount();
+        syncChrome();
+        showToast(uz ? 'Akkauntdan chiqildi.' : 'Signed out.');
+        renderModal();
+      });
+      return;
+    }
+
+    // Signed-out login / register form
+    overlay.innerHTML = `
+      <div class="profile-modal-card" role="dialog" aria-modal="true" aria-label="Account Sign In">
+        <div class="profile-modal-head">
+          <h3 style="margin:0;font-size:18px;font-weight:800;">${uz ? 'Profil va Sinxronizatsiya' : 'Profile & Cloud Sync'}</h3>
+          <button type="button" class="det-rs-icon-btn" id="prof-close" aria-label="Close">✕</button>
+        </div>
+        <p class="page-subtitle" style="margin:0 0 14px;">${uz
+          ? 'Telefon va noutbukdagi barcha Mock natijalari, ballar va xatolarni bitta akkauntda saqlang.'
+          : 'Keep all Mock scores, practice stats, and mistakes synced across laptop and phone.'}</p>
+
+        ${cloudGuideHtml}
+
+        <div class="profile-tabs">
+          <button type="button" class="profile-tab ${modeTab === 'login' ? 'active' : ''}" data-ptab="login">${uz ? 'Kirish' : 'Sign In'}</button>
+          <button type="button" class="profile-tab ${modeTab === 'register' ? 'active' : ''}" data-ptab="register">${uz ? 'Ro‘yxatdan o‘tish' : 'Create Account'}</button>
+        </div>
+
+        <form id="prof-form" autocomplete="on">
+          <div class="form-group">
+            <label class="form-label" for="prof-user">Username</label>
+            <input id="prof-user" class="det-input" type="text" autocomplete="username" placeholder="masalan: sardor_01" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="prof-pass">${uz ? 'Parol (kamida 6 belgi)' : 'Password (min 6 chars)'}</label>
+            <input id="prof-pass" class="det-input" type="password" autocomplete="${modeTab === 'login' ? 'current-password' : 'new-password'}" placeholder="••••••" required />
+          </div>
+          ${errorMsg ? `<div class="banner banner-danger" style="font-size:13px;margin-bottom:12px;">${escapeHtml(errorMsg)}</div>` : ''}
+          <button type="submit" class="det-btn-blue" ${busy ? 'disabled' : ''}>
+            ${busy ? '...' : (modeTab === 'login' ? (uz ? 'KIRISH VA YUKLASH' : 'SIGN IN & SYNC') : (uz ? 'AKKAUNT OCHISH' : 'CREATE ACCOUNT'))}
+          </button>
+        </form>
+      </div>
+    `;
+
+    overlay.querySelector('#prof-close').addEventListener('click', closeModal);
+    overlay.querySelectorAll('[data-ptab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        modeTab = btn.dataset.ptab;
+        errorMsg = '';
+        renderModal();
+      });
+    });
+
+    const form = overlay.querySelector('#prof-form');
+    const userInp = overlay.querySelector('#prof-user');
+    const passInp = overlay.querySelector('#prof-pass');
+    setTimeout(() => userInp?.focus(), 40);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      busy = true;
+      errorMsg = '';
+      renderModal();
+
+      const u = userInp.value;
+      const p = passInp.value;
+      const res = modeTab === 'register' ? await registerAccount(u, p) : await loginAccount(u, p);
+      busy = false;
+
+      if (res.ok) {
+        syncChrome();
+        if (currentRoute === 'dashboard') renderDashboard();
+        else if (currentRoute === 'practice') renderPracticeHub();
+        else if (currentRoute === 'mistakes') renderMistakesView();
+        else if (currentRoute === 'settings') renderSettingsView();
+
+        showToast(
+          res.cloudNotConfigured
+            ? (uz ? `✓ @${res.username} lokal profil saqlandi (Cloud uchun Vercel Storage ulang).` : `✓ Saved @${res.username} locally.`)
+            : (uz ? `✓ Xush kelibsiz, @${res.username}! Natijalar sinxronlandi.` : `✓ Signed in as @${res.username}!`),
+          'success'
+        );
+        closeModal();
+      } else {
+        errorMsg = formatAuthError(res.code, res.error, lang);
+        renderModal();
+      }
+    });
+  };
+
+  renderModal();
+  checkCloudStatus().then((st) => {
+    cloudStatus = st;
+    if (document.body.contains(overlay)) renderModal();
+  });
+}
+
 // Global Nav & Language Switch
 document.querySelectorAll('[data-nav]').forEach((btn) => {
   btn.addEventListener('click', () => navigate(btn.dataset.nav));
 });
+
+profileBtnEl?.addEventListener('click', openProfileModal);
 
 document.getElementById('lang-uz').addEventListener('click', () => {
   updateSettings({ uiLang: 'uz' });
@@ -4133,5 +4431,12 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     if (currentRoute === 'settings') renderSettingsView();
   };
 }
+
+initAccountAutoSync(() => {
+  syncChrome();
+  if (currentRoute === 'dashboard') renderDashboard();
+  else if (currentRoute === 'mistakes') renderMistakesView();
+  else if (currentRoute === 'practice') renderPracticeHub();
+});
 
 navigate('dashboard');

@@ -67,10 +67,148 @@ export function loadState() {
   }
 }
 
-export function saveState(state) {
+const saveListeners = new Set();
+
+export function onStateSaved(fn) {
+  if (typeof fn !== 'function') return () => {};
+  saveListeners.add(fn);
+  return () => saveListeners.delete(fn);
+}
+
+export function saveState(state, { silent = false } = {}) {
   const store = getStorage();
   if (!store) return;
   store.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (!silent) {
+    saveListeners.forEach((fn) => {
+      try { fn(state); } catch {}
+    });
+  }
+}
+
+export function sanitizeStateForCloud(state = loadState()) {
+  const src = state && typeof state === 'object' ? state : createDefaultState();
+  const safeSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(src.settings || {}),
+    apiKey: ''
+  };
+  safeSettings.model = normalizeGeminiModel(safeSettings.model);
+  return {
+    settings: safeSettings,
+    examHistory: Array.isArray(src.examHistory) ? src.examHistory.slice(0, 30) : [],
+    practiceStats: src.practiceStats && typeof src.practiceStats === 'object' ? src.practiceStats : {},
+    dailyActivity: src.dailyActivity && typeof src.dailyActivity === 'object' ? src.dailyActivity : {},
+    mistakes: Array.isArray(src.mistakes) ? src.mistakes.slice(0, 200) : [],
+    seenIds: src.seenIds && typeof src.seenIds === 'object' ? src.seenIds : {},
+    recentWords: Array.isArray(src.recentWords) ? src.recentWords.slice(-120) : []
+  };
+}
+
+export function mergeStates(localState, cloudState) {
+  const local = sanitizeStateForCloud(localState || createDefaultState());
+  const localApiKey = String(localState?.settings?.apiKey || '');
+  if (!cloudState || typeof cloudState !== 'object') {
+    local.settings.apiKey = localApiKey;
+    return local;
+  }
+  const cloud = sanitizeStateForCloud(cloudState);
+
+  // Merge examHistory uniquely by id, newest first
+  const examMap = new Map();
+  [...(cloud.examHistory || []), ...(local.examHistory || [])].forEach((ex) => {
+    if (!ex || !ex.id) return;
+    if (!examMap.has(ex.id)) examMap.set(ex.id, ex);
+  });
+  const examHistory = Array.from(examMap.values())
+    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+    .slice(0, 30);
+
+  // Merge practiceStats per type
+  const practiceStats = { ...cloud.practiceStats };
+  for (const [typeId, lStat] of Object.entries(local.practiceStats || {})) {
+    const cStat = practiceStats[typeId];
+    if (!cStat) {
+      practiceStats[typeId] = lStat;
+    } else if ((lStat?.attempts || 0) > (cStat.attempts || 0)) {
+      practiceStats[typeId] = lStat;
+    } else if ((lStat?.totalTimeSec || 0) > (cStat.totalTimeSec || 0)) {
+      practiceStats[typeId] = {
+        ...cStat,
+        totalTimeSec: Math.max(cStat.totalTimeSec || 0, lStat.totalTimeSec || 0)
+      };
+    }
+  }
+
+  // Merge dailyActivity per date
+  const dailyActivity = { ...cloud.dailyActivity };
+  for (const [day, lDay] of Object.entries(local.dailyActivity || {})) {
+    const cDay = dailyActivity[day];
+    if (!cDay) {
+      dailyActivity[day] = lDay;
+    } else {
+      dailyActivity[day] = {
+        count: Math.max(cDay.count || 0, lDay.count || 0),
+        minutes: Math.max(cDay.minutes || 0, lDay.minutes || 0)
+      };
+    }
+  }
+
+  // Merge mistakes cleanly, keeping mastered: true if mastered on either device
+  const mistakeMap = new Map();
+  [...(cloud.mistakes || []), ...(local.mistakes || [])].forEach((m) => {
+    if (!m) return;
+    const key = `${m.type}|${m.prompt}|${m.correctAnswer}`;
+    const prev = mistakeMap.get(key);
+    if (!prev) {
+      mistakeMap.set(key, { ...m });
+    } else {
+      const prevTime = new Date(prev.createdAt || 0).getTime();
+      const curTime = new Date(m.createdAt || 0).getTime();
+      const newer = curTime >= prevTime ? m : prev;
+      mistakeMap.set(key, {
+        ...newer,
+        mastered: Boolean(prev.mastered || m.mastered)
+      });
+    }
+  });
+  const mistakes = Array.from(mistakeMap.values())
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+    .slice(0, 200);
+
+  // Merge seenIds sets
+  const seenIds = {};
+  const seenKeys = new Set([...Object.keys(cloud.seenIds || {}), ...Object.keys(local.seenIds || {})]);
+  for (const k of seenKeys) {
+    const combined = [...(cloud.seenIds?.[k] || []), ...(local.seenIds?.[k] || [])];
+    const uniq = Array.from(new Set(combined.filter(Boolean)));
+    seenIds[k] = uniq.slice(-400);
+  }
+
+  const recentWords = Array.from(new Set([...(cloud.recentWords || []), ...(local.recentWords || [])])).slice(-120);
+
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    ...cloud.settings,
+    ...local.settings,
+    apiKey: localApiKey
+  };
+  settings.model = normalizeGeminiModel(settings.model);
+
+  return {
+    settings,
+    examHistory,
+    practiceStats,
+    dailyActivity,
+    mistakes,
+    seenIds,
+    recentWords
+  };
+}
+
+export function applyMergedState(nextState) {
+  saveState(nextState, { silent: true });
+  return nextState;
 }
 
 export function updateSettings(partial) {

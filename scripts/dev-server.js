@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const ttsHandler = require('../api/tts');
+const accountHandler = require('../api/account');
 
 const PORT = Number(process.env.PORT) || 4173;
 const ROOT = path.resolve(__dirname, '..');
@@ -21,6 +22,10 @@ const server = http.createServer(async (req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
   if (urlPath === '/api/tts') {
     await ttsHandler(req, res);
+    return;
+  }
+  if (urlPath === '/api/account') {
+    await accountHandler(req, res);
     return;
   }
 

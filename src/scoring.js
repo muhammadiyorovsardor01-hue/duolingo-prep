@@ -29,7 +29,7 @@ export const TASK_WEIGHTS = {
 };
 
 export const GUESSING_FLOOR = {
-  read_select: 0.46,
+  read_select: 0.28,
   interactive_reading: 0.15,
   interactive_listening: 0.18
 };
@@ -37,6 +37,15 @@ export const GUESSING_FLOOR = {
 export function estimateAbilityIRT(responses = []) {
   if (!Array.isArray(responses) || responses.length === 0) return 10;
   if (responses.every((r) => (Number(r.pctScore) || 0) <= 0)) return 15;
+
+  if (responses.length >= 5 && responses.every((r) => r.type === 'read_select')) {
+    const avgPct = responses.reduce((s, r) => s + (Number(r.pctScore) || 0), 0) / responses.length;
+    const acc = Math.max(0, Math.min(1, avgPct / 100));
+    const avgDiff = responses.reduce((s, r) => s + Math.max(1, Math.min(5, Number(r.difficulty) || 3)), 0) / responses.length;
+    const base = 15 + Math.pow(acc, 1.05) * 140;
+    const diffAdj = (avgDiff - 3) * 5;
+    return roundDetScore(base + diffAdj);
+  }
 
   const a = 0.09;
   const priorMean = 85;
