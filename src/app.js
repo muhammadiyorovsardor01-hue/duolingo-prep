@@ -27,7 +27,7 @@ import {
 import { scoreToIelts, scoreToCefr, nextAdaptiveDifficulty, estimateAbilityIRT, roundDetScore } from './scoring.js';
 import { GEMINI_MODELS, testConnection, generateQuestion, generateReadSelectBatch } from './gemini.js';
 import { getEnglishVoices, speakText, stopSpeaking, unlockSpeech } from './speech.js';
-import { playCorrectSound, playPartialSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound } from './sounds.js';
+import { playCorrectSound, playPartialSound, playWrongSound, playCompleteSound, playTimeoutSound, playTapSound, warmAudioContext } from './sounds.js';
 import {
   mountQuestionRenderer,
   applyObjectiveReviewVisuals,
@@ -647,13 +647,26 @@ function formatShortTimer(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** Millisecond-accurate countdown timer using performance.now() with pause/resume support. */
+/** Millisecond-accurate 60fps countdown timer using requestAnimationFrame with background-tab fallback. */
 function createPrecisionTimer({ totalSec, urgentSec = 3, onTick, onExpire }) {
   const totalMs = Math.max(1000, Number(totalSec) * 1000);
   let remainingMs = totalMs;
   let lastTs = performance.now();
   let paused = false;
   let stopped = false;
+  let rafId = 0;
+  let fallbackTimerId = 0;
+
+  const clearScheduled = () => {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    if (fallbackTimerId) {
+      clearTimeout(fallbackTimerId);
+      fallbackTimerId = 0;
+    }
+  };
 
   const emit = () => {
     const displaySec = Math.ceil(remainingMs / 1000);
@@ -666,30 +679,43 @@ function createPrecisionTimer({ totalSec, urgentSec = 3, onTick, onExpire }) {
     });
   };
 
-  emit();
+  const scheduleNext = () => {
+    clearScheduled();
+    if (stopped || paused) return;
 
-  const intervalId = setInterval(() => {
-    if (stopped) return;
-    const now = performance.now();
-    if (paused) {
-      lastTs = now;
-      return;
+    if (typeof document !== 'undefined' && document.hidden) {
+      const waitMs = Math.max(16, Math.min(250, remainingMs));
+      fallbackTimerId = setTimeout(step, waitMs);
+    } else {
+      rafId = requestAnimationFrame(step);
+      fallbackTimerId = setTimeout(step, Math.max(250, Math.min(remainingMs + 20, 1000)));
     }
+  };
+
+  const step = () => {
+    if (stopped || paused) return;
+    const now = performance.now();
     remainingMs = Math.max(0, remainingMs - (now - lastTs));
     lastTs = now;
     emit();
     if (remainingMs <= 0) {
       stopped = true;
-      clearInterval(intervalId);
+      clearScheduled();
       onExpire?.();
+      return;
     }
-  }, 100);
+    scheduleNext();
+  };
+
+  emit();
+  scheduleNext();
 
   return {
     pause() {
       if (!stopped && !paused) {
         remainingMs = Math.max(0, remainingMs - (performance.now() - lastTs));
         paused = true;
+        clearScheduled();
       }
     },
     resume() {
@@ -697,11 +723,12 @@ function createPrecisionTimer({ totalSec, urgentSec = 3, onTick, onExpire }) {
         lastTs = performance.now();
         paused = false;
         emit();
+        scheduleNext();
       }
     },
     stop() {
       stopped = true;
-      clearInterval(intervalId);
+      clearScheduled();
     },
     getRemainingMs() {
       if (!paused && !stopped) {
@@ -714,7 +741,10 @@ function createPrecisionTimer({ totalSec, urgentSec = 3, onTick, onExpire }) {
 
 function applyTimerTickUi(timerEl, barEl, { displaySec, pct, isWarn, isUrgent }) {
   if (timerEl) {
-    timerEl.textContent = formatShortTimer(displaySec);
+    const nextText = formatShortTimer(displaySec);
+    if (timerEl.textContent !== nextText) {
+      timerEl.textContent = nextText;
+    }
     timerEl.classList.toggle('urgent', isUrgent);
   }
   if (barEl) {
@@ -1084,13 +1114,71 @@ function startReadSelectPractice(useAi) {
         submitted = true;
         clearItemTimers();
 
-        const answer = overrideAns !== undefined ? overrideAns : await activeRenderer.getAnswer();
-        activeRenderer.cleanup();
-        if (aborted) return;
+        const answer = overrideAns !== undefined ? overrideAns : activeRenderer.getAnswer();
+        const isCorrect = answer != null && Boolean(answer) === Boolean(item.isReal);
 
+        // Fire sound and feedback drawer synchronously before any await or localStorage write
+        if (timedOut && answer == null) {
+          playTimeoutSound(soundOn);
+        } else if (isCorrect) {
+          playCorrectSound(soundOn);
+        } else {
+          playWrongSound(soundOn);
+        }
+
+        const badgeSvg = isCorrect
+          ? `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
+
+        drawerEl.className = `det-rs-drawer ${isCorrect ? 'correct' : 'wrong'}`;
+        drawerEl.innerHTML = `
+          <div class="det-rs-drawer-inner">
+            <div class="det-rs-drawer-row">
+              <span class="det-rs-badge">${badgeSvg}</span>
+              <span class="det-rs-heading">${isCorrect ? 'Great job!' : 'Incorrect'}</span>
+            </div>
+            <button type="button" id="dp-rs-cta" class="det-rs-cta">${isCorrect ? 'CONTINUE' : 'GOT IT'}</button>
+          </div>
+        `;
+
+        const ctaBtn = drawerEl.querySelector('#dp-rs-cta');
+        let proceeding = false;
+        const proceed = () => {
+          if (proceeding || aborted) return;
+          proceeding = true;
+          if (continueKeyListener) {
+            document.removeEventListener('keydown', continueKeyListener);
+            continueKeyListener = null;
+          }
+
+          const isLast = currentIndex + 1 >= totalItems;
+          if (isLast) {
+            ctaBtn.disabled = true;
+            ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
+            finishDotsTimer = setTimeout(() => {
+              finishDotsTimer = null;
+              if (!aborted) renderCompletion();
+            }, 420);
+          } else {
+            currentIndex += 1;
+            loadWord();
+          }
+        };
+
+        ctaBtn.addEventListener('click', proceed);
+        continueKeyListener = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            proceed();
+          }
+        };
+        document.addEventListener('keydown', continueKeyListener);
+
+        activeRenderer.cleanup();
         const result = await gradeAnyItem({ item, answer, settings });
         if (aborted) return;
 
+        applyObjectiveReviewVisuals(mountEl, item, result);
         sessionResults.push({ item, result });
 
         if (!result.correct) {
@@ -1121,66 +1209,6 @@ function startReadSelectPractice(useAi) {
             }
           }
         }
-
-        applyObjectiveReviewVisuals(mountEl, item, result);
-
-        if (timedOut && answer == null) {
-          playTimeoutSound(soundOn);
-        } else if (result.correct) {
-          playCorrectSound(soundOn);
-        } else {
-          playWrongSound(soundOn);
-        }
-
-        const isCorrect = Boolean(result.correct);
-        const badgeSvg = isCorrect
-          ? `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-          : `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
-
-        drawerEl.className = `det-rs-drawer ${isCorrect ? 'correct' : 'wrong'}`;
-        drawerEl.innerHTML = `
-          <div class="det-rs-drawer-inner">
-            <div class="det-rs-drawer-row">
-              <span class="det-rs-badge">${badgeSvg}</span>
-              <span class="det-rs-heading">${isCorrect ? 'Great job!' : 'Incorrect'}</span>
-            </div>
-            <button type="button" id="dp-rs-cta" class="det-rs-cta">${isCorrect ? 'CONTINUE' : 'GOT IT'}</button>
-          </div>
-        `;
-
-        const ctaBtn = drawerEl.querySelector('#dp-rs-cta');
-        let proceeding = false;
-        const proceed = () => {
-          if (proceeding || aborted) return;
-          proceeding = true;
-          if (continueKeyListener) {
-            document.removeEventListener('keydown', continueKeyListener);
-            continueKeyListener = null;
-          }
-          playTapSound(soundOn);
-
-          const isLast = currentIndex + 1 >= totalItems;
-          if (isLast) {
-            ctaBtn.disabled = true;
-            ctaBtn.innerHTML = '<span class="det-loading-dots"><span></span><span></span><span></span></span>';
-            finishDotsTimer = setTimeout(() => {
-              finishDotsTimer = null;
-              if (!aborted) renderCompletion();
-            }, 420);
-          } else {
-            currentIndex += 1;
-            loadWord();
-          }
-        };
-
-        ctaBtn.addEventListener('click', proceed);
-        continueKeyListener = (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            proceed();
-          }
-        };
-        document.addEventListener('keydown', continueKeyListener);
       };
 
       activeRenderer = mountQuestionRenderer(mountEl, item, {
@@ -1506,38 +1534,6 @@ function startFillBlanksPractice(useAi) {
         const expectedWord = item.fullWord || `${item.prefix || ''}${item.missing || ''}`;
         const fullSentence = `${item.before || ''}${expectedWord}${item.after || ''}`;
 
-        if (!result.correct) {
-          addMistake({
-            type: 'fill_blanks',
-            prompt: `${item.before || ''}${item.prefix || ''}___${item.after || ''}`,
-            userAnswer: result.userSummary,
-            correctAnswer: expectedWord,
-            note: 'Fill in the Blanks'
-          });
-          syncChrome();
-        }
-
-        if (practiceDifficulty === 'adaptive') {
-          if (result.correct) {
-            correctStreak += 1;
-            wrongStreak = 0;
-            if (correctStreak >= 2) {
-              currentDiff = Math.min(5, currentDiff + 1);
-              correctStreak = 0;
-            }
-          } else {
-            wrongStreak += 1;
-            correctStreak = 0;
-            if (wrongStreak >= 2) {
-              currentDiff = Math.max(1, currentDiff - 1);
-              wrongStreak = 0;
-            }
-          }
-        }
-
-        applyObjectiveReviewVisuals(mountEl, item, result);
-        submitBarEl.classList.add('hidden');
-
         if (timedOut && (!answer || !String(answer).trim())) {
           playTimeoutSound(soundOn);
         } else if (result.correct) {
@@ -1545,6 +1541,9 @@ function startFillBlanksPractice(useAi) {
         } else {
           playWrongSound(soundOn);
         }
+
+        applyObjectiveReviewVisuals(mountEl, item, result);
+        submitBarEl.classList.add('hidden');
 
         const isCorrect = Boolean(result.correct);
         const badgeSvg = isCorrect
@@ -1581,7 +1580,6 @@ function startFillBlanksPractice(useAi) {
             document.removeEventListener('keydown', continueKeyListener);
             continueKeyListener = null;
           }
-          playTapSound(soundOn);
 
           const isLast = currentIndex + 1 >= totalItems;
           if (isLast) {
@@ -1610,6 +1608,35 @@ function startFillBlanksPractice(useAi) {
             document.addEventListener('keydown', continueKeyListener);
           }
         }, 0);
+
+        if (!result.correct) {
+          addMistake({
+            type: 'fill_blanks',
+            prompt: `${item.before || ''}${item.prefix || ''}___${item.after || ''}`,
+            userAnswer: result.userSummary,
+            correctAnswer: expectedWord,
+            note: 'Fill in the Blanks'
+          });
+          syncChrome();
+        }
+
+        if (practiceDifficulty === 'adaptive') {
+          if (result.correct) {
+            correctStreak += 1;
+            wrongStreak = 0;
+            if (correctStreak >= 2) {
+              currentDiff = Math.min(5, currentDiff + 1);
+              correctStreak = 0;
+            }
+          } else {
+            wrongStreak += 1;
+            correctStreak = 0;
+            if (wrongStreak >= 2) {
+              currentDiff = Math.max(1, currentDiff - 1);
+              wrongStreak = 0;
+            }
+          }
+        }
       };
 
       activeSubmitHandler = () => {
@@ -1939,43 +1966,6 @@ function startReadCompletePractice(useAi) {
 
         sessionResults.push({ item, result });
 
-        if (!result.correct) {
-          const missedSummary = (result.details || [])
-            .filter((d) => !d.ok)
-            .slice(0, 6)
-            .map((d) => `${d.prefix || ''}${d.expected || ''}`)
-            .join(', ');
-          addMistake({
-            type: 'read_complete',
-            prompt: item.title || 'Read and Complete',
-            userAnswer: result.userSummary,
-            correctAnswer: missedSummary || result.expected,
-            note: 'Read and Complete'
-          });
-          syncChrome();
-        }
-
-        if (practiceDifficulty === 'adaptive') {
-          if (result.correct) {
-            correctStreak += 1;
-            wrongStreak = 0;
-            if (correctStreak >= 2) {
-              currentDiff = Math.min(5, currentDiff + 1);
-              correctStreak = 0;
-            }
-          } else {
-            wrongStreak += 1;
-            correctStreak = 0;
-            if (wrongStreak >= 2) {
-              currentDiff = Math.max(1, currentDiff - 1);
-              wrongStreak = 0;
-            }
-          }
-        }
-
-        applyObjectiveReviewVisuals(mountEl, item, result);
-        submitBarEl.classList.add('hidden');
-
         const outcome = result.correctCount === result.totalBlanks
           ? 'correct'
           : (result.correctCount > 0 ? 'partial' : 'wrong');
@@ -1989,6 +1979,9 @@ function startReadCompletePractice(useAi) {
         } else {
           playWrongSound(soundOn);
         }
+
+        applyObjectiveReviewVisuals(mountEl, item, result);
+        submitBarEl.classList.add('hidden');
 
         const checkBadgeSvg = `<svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4.5 10.5L8.2 14.2L15.5 6.2" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         const crossBadgeSvg = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M5.5 5.5L14.5 14.5M14.5 5.5L5.5 14.5" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/></svg>`;
@@ -2049,7 +2042,6 @@ function startReadCompletePractice(useAi) {
             document.removeEventListener('keydown', continueKeyListener);
             continueKeyListener = null;
           }
-          playTapSound(soundOn);
 
           const isLast = currentIndex + 1 >= totalItems;
           if (isLast) {
@@ -2078,6 +2070,40 @@ function startReadCompletePractice(useAi) {
             document.addEventListener('keydown', continueKeyListener);
           }
         }, 0);
+
+        if (!result.correct) {
+          const missedSummary = (result.details || [])
+            .filter((d) => !d.ok)
+            .slice(0, 6)
+            .map((d) => `${d.prefix || ''}${d.expected || ''}`)
+            .join(', ');
+          addMistake({
+            type: 'read_complete',
+            prompt: item.title || 'Read and Complete',
+            userAnswer: result.userSummary,
+            correctAnswer: missedSummary || result.expected,
+            note: 'Read and Complete'
+          });
+          syncChrome();
+        }
+
+        if (practiceDifficulty === 'adaptive') {
+          if (result.correct) {
+            correctStreak += 1;
+            wrongStreak = 0;
+            if (correctStreak >= 2) {
+              currentDiff = Math.min(5, currentDiff + 1);
+              correctStreak = 0;
+            }
+          } else {
+            wrongStreak += 1;
+            correctStreak = 0;
+            if (wrongStreak >= 2) {
+              currentDiff = Math.max(1, currentDiff - 1);
+              wrongStreak = 0;
+            }
+          }
+        }
       };
 
       activeSubmitHandler = () => {
@@ -2465,7 +2491,6 @@ function startInteractiveReadingPractice(useAi) {
           document.removeEventListener('keydown', continueKeyListener);
           continueKeyListener = null;
         }
-        playTapSound(soundOn);
 
         const finishNow = (sessionTimer ? sessionTimer.getRemainingMs() <= 0 : true) || stageIdx + 1 >= totalStages;
         if (finishNow) {

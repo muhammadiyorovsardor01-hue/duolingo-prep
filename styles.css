@@ -2095,7 +2095,7 @@ button {
   height: 100%;
   width: 100%;
   background: #1CB0F6;
-  transition: width 0.12s linear, background-color 0.2s ease;
+  transition: background-color 0.2s ease;
 }
 
 .det-timer-bar-fill.warn {
@@ -2291,7 +2291,7 @@ button {
   bottom: 0;
   z-index: 40;
   padding: 18px 20px 22px;
-  animation: detDrawerUp 0.17s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: detDrawerUp 0.13s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .det-rs-drawer.hidden {
